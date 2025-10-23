@@ -8,15 +8,17 @@
 
 #define WIDTH 1920
 #define HEIGHT 1080
-#define PLOT_WIDTH 864
-#define PLOT_HEIGHT 1000
-#define Y_OFFSET 40
+#define PLOT_WIDTH 1440
+#define PLOT_HEIGHT 864
+#define Y_OFFSET 80
 #define X_OFFSET 20
+#define PLOT_POSITION_X WIDTH * 0.9f
+#define PLOT_POSITION_Y HEIGHT * 0.95f
 
 #define MAX_PLACEMENT 10
 #define MAX_TRACKS 2048
 
-#define FPS 60
+#define FPS 45
 
 typedef struct Track {
     Vector2 position;             
@@ -26,6 +28,7 @@ typedef struct Track {
     char artist[128];
     int playcount;
     bool active;
+    Texture2D image;
 } Track;
 
 Color parse_color(const char *str) {
@@ -49,9 +52,12 @@ int main(void) {
     if (!ffmpeg) {
         return 1;
     }
-
     InitWindow(WIDTH, HEIGHT, "Raylib Example");
     RenderTexture2D screen = LoadRenderTexture(WIDTH, HEIGHT);
+    // SetTextureFilter(screen.texture, TEXTURE_FILTER_POINT);
+
+    Font font = LoadFontEx("resources/NotoSans-SemiBold.ttf", 18, NULL, 256);
+    // SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
 
     CSVReader reader;
     char fields[CSV_MAX_FIELDS][CSV_MAX_FIELD_LEN];
@@ -63,6 +69,7 @@ int main(void) {
     Track* tracks = (Track*)RL_CALLOC(MAX_TRACKS, sizeof(Track)); 
 
     int counter = 0;
+    char path_buffer[512];
     while(csv_read_row(&reader, fields, &field_count)) {
         unsigned char r = (unsigned char)strtol(fields[3], NULL, 10);
         unsigned char g = (unsigned char)strtol(fields[4], NULL, 10);
@@ -75,6 +82,13 @@ int main(void) {
         tracks[counter].active = 0;
         snprintf(tracks[counter].name, sizeof(tracks[counter].name), "%s", fields[7]);
         snprintf(tracks[counter].artist, sizeof(tracks[counter].artist), "%s", fields[8]);
+
+
+        
+        snprintf(path_buffer, sizeof(path_buffer), "C:\\Users\\human\\git\\song-timeline-visualization\\cache\\export_images\\%d.png", counter);
+
+        tracks[counter].image = LoadTexture(path_buffer);
+        // SetTextureFilter(tracks[counter].image, TEXTURE_FILTER_POINT);
 
         counter++;
     }
@@ -135,11 +149,10 @@ int main(void) {
             tracks[index].active = 1;
             
             float placement = (float)strtod(current_fields[1], NULL);
-            tracks[index].position.y = placement / MAX_PLACEMENT * PLOT_HEIGHT 
-                                    - Y_OFFSET - tracks[index].size.y * 0.5f;
+            tracks[index].position.y = placement / MAX_PLACEMENT * PLOT_HEIGHT - tracks[index].size.y * 0.5f;
             
             float playcount = (float)strtod(current_fields[5], NULL);
-            tracks[index].size.x = playcount / max_playcount * (float)PLOT_WIDTH;
+            tracks[index].size.x = playcount / max_playcount * PLOT_WIDTH;
             tracks[index].playcount = (int)playcount;
 
             char* backgroundColorText = current_fields[8];
@@ -155,7 +168,35 @@ int main(void) {
 
             // plot level changes
             ClearBackground(bgColor);
-            DrawText(prevTime, WIDTH - 200, HEIGHT - 50, 20, BLACK);
+
+            DrawText(prevTime, WIDTH - 200, HEIGHT - 25, 20, BLACK);
+
+            // draw x axis it is from 0 to max_playcount
+            DrawLine(X_OFFSET, HEIGHT - Y_OFFSET, WIDTH - X_OFFSET, HEIGHT - Y_OFFSET, BLACK);
+
+            for (int x = 0; x <= 10; x++) {
+                float xPos = (x / 8.0f * PLOT_WIDTH);
+                DrawLine(xPos, HEIGHT - Y_OFFSET - 5, xPos,
+                            HEIGHT - Y_OFFSET + 5, BLACK);
+                DrawText(
+                    TextFormat("%d", (int)(x  / 8.0f * max_playcount)),
+                    (int)(xPos - 5),
+                    HEIGHT - Y_OFFSET + 10,
+                    10,
+                    DARKGRAY
+                );
+            }
+
+            // // add one more tick
+            // DrawLine(PLOT_WIDTH * 1.1f, HEIGHT - Y_OFFSET - 5, PLOT_WIDTH * 1.1f,
+            //             HEIGHT - Y_OFFSET + 5, BLACK);
+            // DrawText(
+            //     TextFormat("%d", (int)(max_playcount * 1.1f)),
+            //     (int)(PLOT_WIDTH * 1.1f - 5),
+            //     HEIGHT - Y_OFFSET + 10,
+            //     10,
+            //     DARKGRAY
+            // );
 
             for (int i = 0; i < counter; i++) {
                 // song level changes
@@ -163,10 +204,23 @@ int main(void) {
                 // Bar
                 DrawRectangleV(tracks[i].position, tracks[i].size, tracks[i].color);
 
+                DrawTexturePro(tracks[i].image, 
+                    (Rectangle){ 0, 0, tracks[i].image.width, tracks[i].image.height },
+                    (Rectangle){ tracks[i].size.x, tracks[i].position.y, tracks[i].size.y, tracks[i].size.y },
+                    (Vector2){ 0, 0 },  
+                    0.0f,
+                    WHITE   
+                );
+
                 // Text annotations
-                DrawText(tracks[i].name, tracks[i].size.x + X_OFFSET + 5.0f, tracks[i].position.y + tracks[i].size.y/2.0f, 10, BLACK);
-                DrawText(tracks[i].artist, tracks[i].size.x + X_OFFSET + 5.0f, tracks[i].position.y + tracks[i].size.y/2.0f + 12, 10, DARKGRAY);
-                DrawText(TextFormat("%d", tracks[i].playcount), tracks[i].size.x + X_OFFSET + 5.0f, tracks[i].position.y + tracks[i].size.y/2.0f + 24, 10, BLUE);
+                DrawTextEx(font, tracks[i].name, (Vector2){ tracks[i].size.x + 110.0f, tracks[i].position.y + tracks[i].size.y/16.0f }, 18, 1, BLACK);
+                DrawTextEx(font, tracks[i].artist, (Vector2){ tracks[i].size.x + 110.0f, tracks[i].position.y + tracks[i].size.y/16.0f + 18 }, 18, 1, DARKGRAY);
+                DrawTextEx(font, 
+                    TextFormat("%d", tracks[i].playcount), 
+                    (Vector2){ tracks[i].size.x + 110.0f, tracks[i].position.y + tracks[i].size.y/16.0f + 36 }, 
+                    18, 
+                    1,
+                    BLUE);
             }
             
         EndTextureMode();
@@ -182,6 +236,12 @@ int main(void) {
         ffmpeg_send_frame_flipped(ffmpeg, image.data, WIDTH, HEIGHT);
         UnloadImage(image);
     }
+
+    // unload resources
+    for (int i = 0; i < counter; i++) {
+        UnloadTexture(tracks[i].image);
+    }
+    RL_FREE(tracks);
 
     csv_close(&reader);
     UnloadRenderTexture(screen);

@@ -5,7 +5,7 @@
 
 #define CSV_MAX_FIELDS 128
 #define CSV_MAX_FIELD_LEN 256
-#define CSV_MAX_LINE 524288
+#define CSV_MAX_LINE 2048
 
 typedef struct {
     FILE *file;
