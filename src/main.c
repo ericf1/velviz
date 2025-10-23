@@ -12,11 +12,9 @@
 #define PLOT_HEIGHT 864
 #define Y_OFFSET 80
 #define X_OFFSET 20
-#define PLOT_POSITION_X WIDTH * 0.9f
-#define PLOT_POSITION_Y HEIGHT * 0.95f
 
 #define MAX_PLACEMENT 10
-#define MAX_TRACKS 2048
+#define MAX_TRACKS 1024
 
 #define FPS 45
 
@@ -47,17 +45,19 @@ Color parse_color(const char *str) {
 }
 
 int main(void) {
-    SetTraceLogLevel(LOG_WARNING);
+
+    bool drawing = false;
+
+    SetTraceLogLevel(LOG_NONE);
     FFMPEG *ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
     if (!ffmpeg) {
         return 1;
     }
-    InitWindow(WIDTH, HEIGHT, "Raylib Example");
-    RenderTexture2D screen = LoadRenderTexture(WIDTH, HEIGHT);
-    // SetTextureFilter(screen.texture, TEXTURE_FILTER_POINT);
+    if (!drawing) SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_UNFOCUSED);
+    if (!drawing) SetTargetFPS(0); else SetTargetFPS(FPS);
 
-    Font font = LoadFontEx("resources/NotoSans-SemiBold.ttf", 18, NULL, 256);
-    // SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
+    InitWindow(WIDTH, HEIGHT, "Velocity Visualization Renderer");
+    RenderTexture2D screen = LoadRenderTexture(WIDTH, HEIGHT);
 
     CSVReader reader;
     char fields[CSV_MAX_FIELDS][CSV_MAX_FIELD_LEN];
@@ -70,6 +70,7 @@ int main(void) {
 
     int counter = 0;
     char path_buffer[512];
+    char all_text[16384] = {0};
     while(csv_read_row(&reader, fields, &field_count)) {
         unsigned char r = (unsigned char)strtol(fields[3], NULL, 10);
         unsigned char g = (unsigned char)strtol(fields[4], NULL, 10);
@@ -80,19 +81,27 @@ int main(void) {
         tracks[counter].size = (Vector2){ 0.0f, (float)PLOT_HEIGHT / MAX_PLACEMENT };
         tracks[counter].color = (Color){ r, g, b, a };
         tracks[counter].active = 0;
+
+        strcat(all_text, fields[7]);
+        strcat(all_text, " ");
+        strcat(all_text, fields[8]);
+        strcat(all_text, "\n");
+
         snprintf(tracks[counter].name, sizeof(tracks[counter].name), "%s", fields[7]);
         snprintf(tracks[counter].artist, sizeof(tracks[counter].artist), "%s", fields[8]);
 
-
-        
         snprintf(path_buffer, sizeof(path_buffer), "C:\\Users\\human\\git\\song-timeline-visualization\\cache\\export_images\\%d.png", counter);
 
         tracks[counter].image = LoadTexture(path_buffer);
-        // SetTextureFilter(tracks[counter].image, TEXTURE_FILTER_POINT);
 
         counter++;
     }
     csv_close(&reader);
+
+    int codepointCount = 0;
+    int *codepoints = LoadCodepoints(all_text, &codepointCount);
+    Font font = LoadFontEx("resources/NotoSans-SemiBold.ttf", 18, codepoints, codepointCount);    
+    UnloadCodepoints(codepoints);
 
     // now on to the frames
     csv_open(&reader, "data/entire_df.csv");
@@ -104,8 +113,9 @@ int main(void) {
     float max_playcount = 0.0f;
     Color bgColor = RAYWHITE;
 
-    SetTargetFPS(FPS);
-    while (!WindowShouldClose()) {
+    bool running = true;
+    int frames = 0;
+    while (running && !WindowShouldClose()) {
 
         // disable all tracks
         for (int i = 0; i < counter; i++) {
@@ -125,7 +135,10 @@ int main(void) {
                 current_field_count = buffered_field_count;
                 have_buffered = 0;
             } else {
-                if (!csv_read_row(&reader, fields, &field_count)) break;
+                if (!csv_read_row(&reader, fields, &field_count)) {
+                    running = false;
+                    break;
+                }
                 current_fields = fields;
                 current_field_count = field_count;
             }
@@ -163,7 +176,7 @@ int main(void) {
             havePrev = 1;
         }
 
-        BeginDrawing();
+        if (drawing) BeginDrawing();
         BeginTextureMode(screen);
 
             // plot level changes
@@ -186,17 +199,6 @@ int main(void) {
                     DARKGRAY
                 );
             }
-
-            // // add one more tick
-            // DrawLine(PLOT_WIDTH * 1.1f, HEIGHT - Y_OFFSET - 5, PLOT_WIDTH * 1.1f,
-            //             HEIGHT - Y_OFFSET + 5, BLACK);
-            // DrawText(
-            //     TextFormat("%d", (int)(max_playcount * 1.1f)),
-            //     (int)(PLOT_WIDTH * 1.1f - 5),
-            //     HEIGHT - Y_OFFSET + 10,
-            //     10,
-            //     DARKGRAY
-            // );
 
             for (int i = 0; i < counter; i++) {
                 // song level changes
@@ -231,10 +233,13 @@ int main(void) {
             (Vector2){0, 0},
             WHITE
         );
-        EndDrawing();
+        if (drawing) EndDrawing();
         Image image = LoadImageFromTexture(screen.texture);
         ffmpeg_send_frame_flipped(ffmpeg, image.data, WIDTH, HEIGHT);
         UnloadImage(image);
+
+        frames++;
+        fprintf(stderr, "Rendered frame %d\r", frames);
     }
 
     // unload resources

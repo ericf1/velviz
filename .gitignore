@@ -409,3 +409,5 @@ Makefile
 *.csv
 cache/
 *.ttf
+*.mp3
+*.mp4

@@ -14,7 +14,8 @@
 		"ffmpeg.h": "c",
 		"stdlib.h": "c",
 		"stdio.h": "c",
-		"string.h": "c"
+		"string.h": "c",
+		"csvreader.h": "c"
 	},
 	"editor.formatOnSave": false
 }
