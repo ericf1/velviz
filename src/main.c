@@ -20,7 +20,7 @@
 
 #define FPS 60
 
-#define PLOT_TITLE "Velocity Visualization Renderer"
+#define PLOT_TITLE "Eric in 2023"
 
 typedef struct Track {
     Vector2 position;
@@ -54,7 +54,7 @@ int main(void) {
 
     bool drawing = true;
 
-    SetTraceLogLevel(LOG_NONE);
+    if (!drawing) SetTraceLogLevel(LOG_NONE); else SetTraceLogLevel(LOG_WARNING);
     FFMPEG *ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
     if (!ffmpeg) {
         return 1;
@@ -74,17 +74,24 @@ int main(void) {
     int field_count;
 
     // instantiate every track
-    csv_open(&reader, "data/temp_combined_videos_debug.csv");
+    csv_open(&reader, "data/unique_songs_df.csv");
 
     Track* tracks = (Track*)RL_CALLOC(MAX_TRACKS, sizeof(Track)); 
 
     int counter = 0;
     char path_buffer[512];
-    char all_text[16384] = {0};
 
-    // add ↑ to all_text
-    strcat(all_text, "^");
-    strcat(all_text, PLOT_TITLE);
+    enum { ALL_TEXT_SIZE = 16384 };
+    char all_text[ALL_TEXT_SIZE] = {0};
+    char *ptr = all_text;
+    int remaining = ALL_TEXT_SIZE;
+    int chars_written = 0;
+    chars_written = snprintf(ptr, remaining, "↑^%s0123456789\n", PLOT_TITLE);
+    if (chars_written > 0) {
+        ptr += chars_written;
+        remaining -= chars_written;
+    }
+    
     while(csv_read_row(&reader, fields, &field_count)) {
         unsigned char r = (unsigned char)strtol(fields[3], NULL, 10);
         unsigned char g = (unsigned char)strtol(fields[4], NULL, 10);
@@ -96,11 +103,15 @@ int main(void) {
             (float)PLOT_HEIGHT / MAX_PLACEMENT };
         tracks[counter].color = (Color){ r, g, b, a };
         tracks[counter].active = 0;
+        tracks[counter].currentAlpha = 1.0f;
 
-        strcat(all_text, fields[7]);
-        strcat(all_text, " ");
-        strcat(all_text, fields[8]);
-        strcat(all_text, "\n");
+        if (remaining > 0) {
+            chars_written = snprintf(ptr, remaining, "%s %s\n", fields[7], fields[8]);
+            if (chars_written > 0) {
+                ptr += chars_written;
+                remaining -= chars_written;
+            }
+        }
 
         snprintf(tracks[counter].name, sizeof(tracks[counter].name), "%s", fields[7]);
         snprintf(tracks[counter].artist, sizeof(tracks[counter].artist), "%s", fields[8]);
@@ -115,9 +126,13 @@ int main(void) {
 
     int codepointCount = 0;
     int *codepoints = LoadCodepoints(all_text, &codepointCount);
-    Font font = LoadFontEx("resources/NotoSans-SemiBold.ttf", 22, codepoints, codepointCount);    
-    Font bigFont = LoadFontEx("resources/NotoSans-SemiBold.ttf", 36, codepoints, codepointCount);
+    Font font = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 22, codepoints, codepointCount);    
+    
     UnloadCodepoints(codepoints);
+
+    // load like normal things with just 256 cause the characters should be simple
+    Font bigFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 36, NULL, 0);
+    Font smallFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 12, NULL, 0);
 
     // now on to the frames
     csv_open(&reader, "data/entire_df.csv");
@@ -130,7 +145,11 @@ int main(void) {
     Color bgColor = RAYWHITE;
 
     bool running = true;
-    int frames = 0;
+    int frames = 0; // for counting
+
+    const float FIXED_DELTA_TIME = 1.0f / 60.0f; 
+    float currentAnimationTime = 0.0f;
+
     while (running && !WindowShouldClose()) {
 
         // disable all tracks
@@ -204,7 +223,8 @@ int main(void) {
 
             // write the title bro in the top left corner
             DrawTextEx(bigFont, PLOT_TITLE, (Vector2){ X_OFFSET, Y_OFFSET }, 36, 1, BLACK);
-            DrawText("Built by Eric Fang", WIDTH - 150, HEIGHT - 30, 12, DARKGRAY);
+            // DrawText("Built by Eric Fang", WIDTH - 150, HEIGHT - 30, 12, DARKGRAY);
+            DrawTextEx(smallFont, "Built by Eric Fang", (Vector2){ WIDTH - 100, HEIGHT - 30 }, 12, 1, DARKGRAY);
 
             // draw a box around the plot
             Rectangle scissorArea = { X_OFFSET, 1.0f / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET, \
@@ -255,23 +275,25 @@ int main(void) {
                 if (!tracks[i].active) continue;
                 // Bar
                 if (tracks[i].playcountDiffDaily >= 8.0f) {
-                    float time = GetTime();
                     float pulseSpeed = 4.0f;
-                    float sinValue = sinf(time * pulseSpeed);
+                    float sinValue = sinf(currentAnimationTime * pulseSpeed);
                     float amplitude = 0.125f;
                     float center = 0.875f;
                     tracks[i].currentAlpha = (sinValue * amplitude) + center;
 
-                    DrawTextEx(font, TextFormat("%d ^^", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
+                    // pulsing
+                    
+
+                    DrawTextEx(font, TextFormat("%d↑↑", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
                 }
                 else if (tracks[i].currentAlpha < 1.0f) {
                     float fadeBackSpeed = 2.0f;
-                    tracks[i].currentAlpha += fadeBackSpeed * GetFrameTime();
+                    tracks[i].currentAlpha += fadeBackSpeed * FIXED_DELTA_TIME;
                     if (tracks[i].currentAlpha > 1.0f) {
                         tracks[i].currentAlpha = 1.0f;
                     }
-                    
-                    DrawTextEx(font, TextFormat("%d ^", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
+
+                    DrawTextEx(font, TextFormat("%d↑", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
                 }
 
                 Color finalColor = Fade(tracks[i].color, tracks[i].currentAlpha);
@@ -307,6 +329,7 @@ int main(void) {
 
         frames++;
         fprintf(stderr, "Rendered frame %d\r", frames);
+        currentAnimationTime += FIXED_DELTA_TIME;
     }
 
     // unload resources
