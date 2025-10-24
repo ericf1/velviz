@@ -15,7 +15,8 @@
 		"stdlib.h": "c",
 		"stdio.h": "c",
 		"string.h": "c",
-		"csvreader.h": "c"
+		"csvreader.h": "c",
+		"*.m": "c"
 	},
 	"editor.formatOnSave": false
 }

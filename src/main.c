@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
 
 #include "raylib.h"
 #include "csvreader.h"
@@ -9,22 +10,26 @@
 #define WIDTH 1920
 #define HEIGHT 1080
 #define PLOT_WIDTH 1440
-#define PLOT_HEIGHT 864
-#define Y_OFFSET 80
+#define PLOT_HEIGHT 860
+#define Y_OFFSET 20
 #define X_OFFSET 20
 
 #define MAX_PLACEMENT 10
 #define MAX_TRACKS 1024
 
-#define FPS 45
+#define FPS 60
+
+#define PLOT_TITLE "Velocity Visualization Renderer"
 
 typedef struct Track {
-    Vector2 position;             
+    Vector2 position;
     Vector2 size;
-    Color color;            
+    Color color;
+    float currentAlpha;
     char name[128];
     char artist[128];
     int playcount;
+    float playcountDiffDaily;
     bool active;
     Texture2D image;
 } Track;
@@ -46,7 +51,7 @@ Color parse_color(const char *str) {
 
 int main(void) {
 
-    bool drawing = false;
+    bool drawing = true;
 
     SetTraceLogLevel(LOG_NONE);
     FFMPEG *ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
@@ -71,6 +76,10 @@ int main(void) {
     int counter = 0;
     char path_buffer[512];
     char all_text[16384] = {0};
+
+    // add ↑ to all_text
+    strcat(all_text, "^");
+    strcat(all_text, PLOT_TITLE);
     while(csv_read_row(&reader, fields, &field_count)) {
         unsigned char r = (unsigned char)strtol(fields[3], NULL, 10);
         unsigned char g = (unsigned char)strtol(fields[4], NULL, 10);
@@ -100,7 +109,8 @@ int main(void) {
 
     int codepointCount = 0;
     int *codepoints = LoadCodepoints(all_text, &codepointCount);
-    Font font = LoadFontEx("resources/NotoSans-SemiBold.ttf", 18, codepoints, codepointCount);    
+    Font font = LoadFontEx("resources/NotoSans-SemiBold.ttf", 22, codepoints, codepointCount);    
+    Font bigFont = LoadFontEx("resources/NotoSans-SemiBold.ttf", 36, codepoints, codepointCount);
     UnloadCodepoints(codepoints);
 
     // now on to the frames
@@ -124,7 +134,8 @@ int main(void) {
 
         char prevTime[CSV_MAX_FIELD_LEN];
         int havePrev = 0;
-        
+        float averagePlaycount = 0.0f;
+        float cumulativePlaycount = 0.0f;
         while(1) {
             size_t current_field_count;
             char (*current_fields)[CSV_MAX_FIELD_LEN];
@@ -157,17 +168,23 @@ int main(void) {
             }
             
             // Process the row
-            max_playcount = (float)strtod(current_fields[7], NULL);
             int index = (int)strtol(current_fields[11], NULL, 10);
-            tracks[index].active = 1;
-            
             float placement = (float)strtod(current_fields[1], NULL);
-            tracks[index].position.y = placement / MAX_PLACEMENT * PLOT_HEIGHT - tracks[index].size.y * 0.5f;
-            
+            tracks[index].active = 1;
+
+            tracks[index].position.y = placement / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET;
+
             float playcount = (float)strtod(current_fields[5], NULL);
             tracks[index].size.x = playcount / max_playcount * PLOT_WIDTH;
             tracks[index].playcount = (int)playcount;
 
+            // 32 is because 45 minute per frame, 32 frames per day
+            float playcountDiffDaily = (float)strtod(current_fields[6], NULL) * 32.0f;
+            tracks[index].playcountDiffDaily = playcountDiffDaily;
+
+            cumulativePlaycount = (float)strtod(current_fields[9], NULL);
+            averagePlaycount = (float)strtod(current_fields[10], NULL);
+            max_playcount = (float)strtod(current_fields[7], NULL);
             char* backgroundColorText = current_fields[8];
             bgColor = parse_color(backgroundColorText);
 
@@ -179,32 +196,77 @@ int main(void) {
         if (drawing) BeginDrawing();
         BeginTextureMode(screen);
 
-            // plot level changes
+            // write the title bro in the top left corner
+            DrawTextEx(bigFont, PLOT_TITLE, (Vector2){ X_OFFSET, Y_OFFSET }, 36, 1, BLACK);
+
+            // watermark at the bottom right corner
+            // DrawTextEx(font, "Built by Eric Fang", (Vector2){ WIDTH - 100, HEIGHT - Y_OFFSET }, 12, 1, DARKGRAY);
+            DrawText("Built by Eric Fang", WIDTH - 100, HEIGHT - Y_OFFSET, 12, DARKGRAY);
+
+            // PLOT LEVEL CHANGES
             ClearBackground(bgColor);
 
-            DrawText(prevTime, WIDTH - 200, HEIGHT - 25, 20, BLACK);
+            DrawText(TextFormat("%.10s", prevTime), 
+                                PLOT_WIDTH, PLOT_HEIGHT + 80.0f - 30, 30, BLACK);
+            DrawText(TextFormat("%.2f/day · %d streams", averagePlaycount, (int)cumulativePlaycount), 
+                                PLOT_WIDTH, PLOT_HEIGHT + 80.0f, 30, DARKGRAY);
 
+            // DrawTextEx(bigFont, TextFormat("%.10s", prevTime), 
+            //                     (Vector2){ PLOT_WIDTH, PLOT_HEIGHT + 80.0f - 32 }, 32, 1, BLACK);
+            // DrawTextEx(bigFont, TextFormat("%.2f/day · %d streams", averagePlaycount, (int)cumulativePlaycount), 
+            //                     (Vector2){ PLOT_WIDTH, PLOT_HEIGHT + 80.0f }, 32, 1, DARKGRAY);
+            
             // draw x axis it is from 0 to max_playcount
-            DrawLine(X_OFFSET, HEIGHT - Y_OFFSET, WIDTH - X_OFFSET, HEIGHT - Y_OFFSET, BLACK);
-
+            // TODO make the axis move with max_playcount changes
+            DrawLine(X_OFFSET, 
+                (MAX_PLACEMENT + 2.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET, 
+                WIDTH - X_OFFSET, 
+                (MAX_PLACEMENT + 2.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET, 
+                BLACK);
             for (int x = 0; x <= 10; x++) {
-                float xPos = (x / 8.0f * PLOT_WIDTH);
-                DrawLine(xPos, HEIGHT - Y_OFFSET - 5, xPos,
-                            HEIGHT - Y_OFFSET + 5, BLACK);
+                float xPos = (x / 8.0f * PLOT_WIDTH) + X_OFFSET;
+                DrawLine(xPos, (MAX_PLACEMENT + 2.0f) / MAX_PLACEMENT * PLOT_HEIGHT - 5 - Y_OFFSET, xPos,
+                            (MAX_PLACEMENT + 2.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 5 - Y_OFFSET, BLACK);
+                    
+                const char *textToDraw = TextFormat("%d", (int)(x / 8.0f * max_playcount));
+                int centeredXPos = xPos - (MeasureText(textToDraw, 18) / 2);
                 DrawText(
-                    TextFormat("%d", (int)(x  / 8.0f * max_playcount)),
-                    (int)(xPos - 5),
-                    HEIGHT - Y_OFFSET + 10,
-                    10,
-                    DARKGRAY
+                    textToDraw,
+                    centeredXPos,
+                    (MAX_PLACEMENT + 2.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 6 - Y_OFFSET,
+                    18,
+                    BLACK
                 );
             }
 
             for (int i = 0; i < counter; i++) {
-                // song level changes
+                // SONG LEVEL CHANGES
                 if (!tracks[i].active) continue;
                 // Bar
-                DrawRectangleV(tracks[i].position, tracks[i].size, tracks[i].color);
+                if (tracks[i].playcountDiffDaily >= 8.0f) {
+                    float time = GetTime();
+                    float pulseSpeed = 4.0f;
+                    float sinValue = sinf(time * pulseSpeed);
+                    float amplitude = 0.125f;
+                    float center = 0.875f;
+                    tracks[i].currentAlpha = (sinValue * amplitude) + center;
+
+                    DrawTextEx(font, TextFormat("%d ^^", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
+                    
+                }
+                else if (tracks[i].currentAlpha < 1.0f) {
+                    float fadeBackSpeed = 2.0f;
+                    tracks[i].currentAlpha += fadeBackSpeed * GetFrameTime();
+                    if (tracks[i].currentAlpha > 1.0f) {
+                        tracks[i].currentAlpha = 1.0f;
+                    }
+                    DrawTextEx(font, TextFormat("%d ^", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
+                    
+                }
+
+                Color finalColor = Fade(tracks[i].color, tracks[i].currentAlpha);
+                DrawRectangleV(tracks[i].position, tracks[i].size, finalColor);
+                DrawTextEx(font, TextFormat("%d", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
 
                 DrawTexturePro(tracks[i].image, 
                     (Rectangle){ 0, 0, tracks[i].image.width, tracks[i].image.height },
@@ -215,14 +277,9 @@ int main(void) {
                 );
 
                 // Text annotations
-                DrawTextEx(font, tracks[i].name, (Vector2){ tracks[i].size.x + 110.0f, tracks[i].position.y + tracks[i].size.y/16.0f }, 18, 1, BLACK);
-                DrawTextEx(font, tracks[i].artist, (Vector2){ tracks[i].size.x + 110.0f, tracks[i].position.y + tracks[i].size.y/16.0f + 18 }, 18, 1, DARKGRAY);
-                DrawTextEx(font, 
-                    TextFormat("%d", tracks[i].playcount), 
-                    (Vector2){ tracks[i].size.x + 110.0f, tracks[i].position.y + tracks[i].size.y/16.0f + 36 }, 
-                    18, 
-                    1,
-                    BLUE);
+                DrawTextEx(font, tracks[i].name, (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f }, 22, 1, BLACK);
+                DrawTextEx(font, tracks[i].artist, (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 22 }, 22, 1, DARKGRAY);
+                
             }
             
         EndTextureMode();
