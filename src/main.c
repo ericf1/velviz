@@ -25,7 +25,8 @@
 typedef struct Track {
     Vector2 position;
     Vector2 size;
-    Color color;
+    Color baseColor;
+    Color barColor;
     float currentAlpha;
     char name[128];
     char artist[128];
@@ -53,6 +54,7 @@ Color parse_color(const char *str) {
 int main(void) {
 
     bool drawing = true;
+    bool music = false;
 
     if (!drawing) SetTraceLogLevel(LOG_NONE); else SetTraceLogLevel(LOG_WARNING);
     FFMPEG *ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
@@ -63,6 +65,13 @@ int main(void) {
     if (!drawing) SetTargetFPS(0); else SetTargetFPS(FPS);
 
     InitWindow(WIDTH, HEIGHT, "Velocity Visualization Renderer");
+    Music bgMusic;
+    if (music) {
+        InitAudioDevice();
+        bgMusic = LoadMusicStream("C:\\Users\\human\\git\\song-timeline-visualization\\cache\\temp_velviz_audio.mp3");
+        PlayMusicStream(bgMusic);
+        SetMusicVolume(bgMusic, 0.5f);
+    }
     RenderTexture2D screen = LoadRenderTexture(WIDTH, HEIGHT);
 
     // init xaxis
@@ -101,7 +110,8 @@ int main(void) {
         tracks[counter].position = (Vector2){ X_OFFSET, 0.0f };
         tracks[counter].size = (Vector2){ PLOT_WIDTH * ((counter % (MAX_PLACEMENT + 1)) / (float)(MAX_PLACEMENT + 1)), 
             (float)PLOT_HEIGHT / MAX_PLACEMENT };
-        tracks[counter].color = (Color){ r, g, b, a };
+        tracks[counter].baseColor = (Color){ r, g, b, a };
+        tracks[counter].barColor = (Color){ r, g, b, a };
         tracks[counter].active = 0;
         tracks[counter].currentAlpha = 1.0f;
 
@@ -131,7 +141,7 @@ int main(void) {
     UnloadCodepoints(codepoints);
 
     // load like normal things with just 256 cause the characters should be simple
-    Font bigFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 36, NULL, 0);
+    Font bigFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 48, NULL, 0);
     Font smallFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 12, NULL, 0);
 
     // now on to the frames
@@ -203,8 +213,8 @@ int main(void) {
             tracks[index].size.x = playcount / max_playcount * PLOT_WIDTH;
             tracks[index].playcount = (int)playcount;
 
-            // 32 is because 45 minute per frame, 32 frames per day
-            float playcountDiffDaily = (float)strtod(current_fields[6], NULL) * 32.0f;
+            // 0.6h per frame, 40 frames per day
+            float playcountDiffDaily = (float)strtod(current_fields[6], NULL) * 40.0f;
             tracks[index].playcountDiffDaily = playcountDiffDaily;
 
             cumulativePlaycount = (float)strtod(current_fields[9], NULL);
@@ -218,11 +228,31 @@ int main(void) {
             havePrev = 1;
         }
 
+        // statically have an array of length max_placement*3 memory addresses
+        Track* activeTracks[MAX_PLACEMENT * 3];
+        int activeTrackCount = 0;
+        for (int i = 0; i < counter; i++) {
+            if (tracks[i].active) {
+                activeTracks[activeTrackCount++] = &tracks[i];
+            }
+        }
+
+        for (int i = 0; i < activeTrackCount - 1; i++) {
+            for (int j = i + 1; j < activeTrackCount; j++) {
+                if (activeTracks[i]->playcount > activeTracks[j]->playcount) {
+                    Track* temp = activeTracks[i];
+                    activeTracks[i] = activeTracks[j];
+                    activeTracks[j] = temp;
+                }
+            }
+        }
+
+        if (music) UpdateMusicStream(bgMusic);
         if (drawing) BeginDrawing();
         BeginTextureMode(screen);
 
             // write the title bro in the top left corner
-            DrawTextEx(bigFont, PLOT_TITLE, (Vector2){ X_OFFSET, Y_OFFSET }, 36, 1, BLACK);
+            DrawTextEx(bigFont, PLOT_TITLE, (Vector2){ X_OFFSET, Y_OFFSET }, 48, 1, BLACK);
             // DrawText("Built by Eric Fang", WIDTH - 150, HEIGHT - 30, 12, DARKGRAY);
             DrawTextEx(smallFont, "Built by Eric Fang", (Vector2){ WIDTH - 100, HEIGHT - 30 }, 12, 1, DARKGRAY);
 
@@ -241,9 +271,9 @@ int main(void) {
             ClearBackground(bgColor);
 
             DrawText(TextFormat("%.10s", prevTime), 
-                                PLOT_WIDTH, PLOT_HEIGHT - 80.0f - 30, 30, BLACK);
+                                PLOT_WIDTH, PLOT_HEIGHT - 20.0f - 30, 30, BLACK);
             DrawText(TextFormat("%.2f/day · %d streams", averagePlaycount, (int)cumulativePlaycount), 
-                                PLOT_WIDTH, PLOT_HEIGHT - 80.0f, 30, DARKGRAY);
+                                PLOT_WIDTH, PLOT_HEIGHT - 20.0f, 30, DARKGRAY);
 
             DrawLine(X_OFFSET, 
                 (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET + 1.0f, 
@@ -268,49 +298,80 @@ int main(void) {
                 );
             }
 
+            // overlapping logic
+            for (int i = 0; i < activeTrackCount; i++) {
+                activeTracks[i]->currentAlpha = 1.0f;
+            }
+
+            for (int i = 0; i < activeTrackCount; i++) {
+                Rectangle currentRect = { activeTracks[i]->position.x, 
+                        activeTracks[i]->position.y + 0.1f / MAX_PLACEMENT * PLOT_HEIGHT, 
+                        activeTracks[i]->size.x + activeTracks[i]->size.y - 50.0f, 
+                        activeTracks[i]->size.y - 0.1f / MAX_PLACEMENT * PLOT_HEIGHT  };
+                for (int j = 0; j < activeTrackCount; j++) {
+                    if (i == j || !activeTracks[j]->active) continue;
+                    Rectangle otherRect = { activeTracks[j]->position.x, 
+                        activeTracks[j]->position.y + 0.1f / MAX_PLACEMENT * PLOT_HEIGHT, 
+                        activeTracks[j]->size.x + activeTracks[j]->size.y - 50.0f, 
+                        activeTracks[j]->size.y - 0.2f / MAX_PLACEMENT * PLOT_HEIGHT  };
+
+                    // draw rectangles for debug
+                    // DrawRectangleLinesEx(currentRect, 2.0f, RED);
+                    // DrawRectangleLinesEx(otherRect, 2.0f, BLACK);
+
+                    if (CheckCollisionRecs(currentRect, otherRect)) {
+                        // apply alpha to the rectangle with higher playcount
+                        if (activeTracks[i]->playcount > activeTracks[j]->playcount)
+                            activeTracks[i]->currentAlpha = 0.95f;
+                        else
+                            activeTracks[j]->currentAlpha = 0.95f;
+                    }
+                }
+            }
             // begin scissor mode
             BeginScissorMode(scissorArea.x, scissorArea.y, scissorArea.width, scissorArea.height);
-            for (int i = 0; i < counter; i++) {
+            for (int i = 0; i < activeTrackCount; i++) {
                 // SONG LEVEL CHANGES
-                if (!tracks[i].active) continue;
-                // Bar
-                if (tracks[i].playcountDiffDaily >= 8.0f) {
-                    float pulseSpeed = 4.0f;
-                    float sinValue = sinf(currentAnimationTime * pulseSpeed);
-                    float amplitude = 0.125f;
-                    float center = 0.875f;
-                    tracks[i].currentAlpha = (sinValue * amplitude) + center;
+                if (activeTracks[i]->playcountDiffDaily >= 8.0f) {
+                    Vector3 baseHSV = ColorToHSV(activeTracks[i]->baseColor);
+                    float pulse = 0.9f + 0.1f * sinf(currentAnimationTime * 10.0f);
+                    float vPulsed = baseHSV.z * pulse;
+                    activeTracks[i]->barColor = ColorFromHSV(baseHSV.x, baseHSV.y, vPulsed);
 
-                    // pulsing
-                    
-
-                    DrawTextEx(font, TextFormat("%d↑↑", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
+                    DrawTextEx(font, TextFormat("%d↑↑", activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
                 }
-                else if (tracks[i].currentAlpha < 1.0f) {
-                    float fadeBackSpeed = 2.0f;
-                    tracks[i].currentAlpha += fadeBackSpeed * FIXED_DELTA_TIME;
-                    if (tracks[i].currentAlpha > 1.0f) {
-                        tracks[i].currentAlpha = 1.0f;
-                    }
+                else if (abs(activeTracks[i]->barColor.r - activeTracks[i]->baseColor.r) > 10 ||
+                        abs(activeTracks[i]->barColor.g - activeTracks[i]->baseColor.g) > 10 ||
+                        abs(activeTracks[i]->barColor.b - activeTracks[i]->baseColor.b) > 10) {
 
-                    DrawTextEx(font, TextFormat("%d↑", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
+                    Vector3 baseHSV = ColorToHSV(activeTracks[i]->baseColor);
+                    float pulse = 0.9f + 0.1f * sinf(currentAnimationTime * 10.0f);
+                    float vPulsed = baseHSV.z * pulse;
+                    activeTracks[i]->barColor = ColorFromHSV(baseHSV.x, baseHSV.y, vPulsed);
+
+                    DrawTextEx(font, TextFormat("%d↑", activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
+                } else {
+                    activeTracks[i]->barColor = activeTracks[i]->baseColor;
                 }
 
-                Color finalColor = Fade(tracks[i].color, tracks[i].currentAlpha);
-                DrawRectangleV(tracks[i].position, tracks[i].size, finalColor);
-                DrawTextEx(font, TextFormat("%d", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
+                Color finalColor = Fade(activeTracks[i]->barColor, activeTracks[i]->currentAlpha);
+                Rectangle barRect = { activeTracks[i]->position.x, activeTracks[i]->position.y, activeTracks[i]->size.x, activeTracks[i]->size.y };
 
-                DrawTexturePro(tracks[i].image, 
-                    (Rectangle){ 0, 0, tracks[i].image.width, tracks[i].image.height },
-                    (Rectangle){ tracks[i].size.x, tracks[i].position.y, tracks[i].size.y, tracks[i].size.y },
+                DrawRectangleRec(barRect, finalColor);
+                DrawTextEx(font, TextFormat("%d", activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
+
+                Rectangle imageRect = { activeTracks[i]->size.x, activeTracks[i]->position.y, activeTracks[i]->size.y, activeTracks[i]->size.y };
+                DrawTexturePro(activeTracks[i]->image, 
+                    (Rectangle){ 0, 0, activeTracks[i]->image.width, activeTracks[i]->image.height },
+                    imageRect,
                     (Vector2){ 0, 0 },  
                     0.0f,
-                    WHITE   
+                    WHITE
                 );
 
                 // Text annotations
-                DrawTextEx(font, tracks[i].name, (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f }, 22, 1, BLACK);
-                DrawTextEx(font, tracks[i].artist, (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 22 }, 22, 1, DARKGRAY);
+                DrawTextEx(font, activeTracks[i]->name, (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f }, 22, 1, BLACK);
+                DrawTextEx(font, activeTracks[i]->artist, (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 22 }, 22, 1, DARKGRAY);
             }
             EndScissorMode();
             
@@ -322,6 +383,7 @@ int main(void) {
             (Vector2){0, 0},
             WHITE
         );
+        if (drawing) DrawFPS(10, 10);
         if (drawing) EndDrawing();
         Image image = LoadImageFromTexture(screen.texture);
         ffmpeg_send_frame_flipped(ffmpeg, image.data, WIDTH, HEIGHT);
@@ -337,6 +399,11 @@ int main(void) {
         UnloadTexture(tracks[i].image);
     }
     RL_FREE(tracks);
+
+    if (music) {
+        CloseAudioDevice();
+        UnloadMusicStream(bgMusic);
+    }
 
     csv_close(&reader);
     UnloadRenderTexture(screen);
