@@ -6,11 +6,12 @@
 #include "csvreader.h"
 #include "ffmpeg.h"
 #include "string.h"
+#include "xaxis.h"
 
 #define WIDTH 1920
 #define HEIGHT 1080
 #define PLOT_WIDTH 1440
-#define PLOT_HEIGHT 860
+#define PLOT_HEIGHT 950
 #define Y_OFFSET 20
 #define X_OFFSET 20
 
@@ -64,6 +65,10 @@ int main(void) {
     InitWindow(WIDTH, HEIGHT, "Velocity Visualization Renderer");
     RenderTexture2D screen = LoadRenderTexture(WIDTH, HEIGHT);
 
+    // init xaxis
+    Axis xaxis;
+    initAxis(&xaxis);
+
     CSVReader reader;
     char fields[CSV_MAX_FIELDS][CSV_MAX_FIELD_LEN];
     int field_count;
@@ -87,7 +92,8 @@ int main(void) {
         unsigned char a = (unsigned char)strtol(fields[6], NULL, 10);
 
         tracks[counter].position = (Vector2){ X_OFFSET, 0.0f };
-        tracks[counter].size = (Vector2){ 0.0f, (float)PLOT_HEIGHT / MAX_PLACEMENT };
+        tracks[counter].size = (Vector2){ PLOT_WIDTH * ((counter % (MAX_PLACEMENT + 1)) / (float)(MAX_PLACEMENT + 1)), 
+            (float)PLOT_HEIGHT / MAX_PLACEMENT };
         tracks[counter].color = (Color){ r, g, b, a };
         tracks[counter].active = 0;
 
@@ -198,47 +204,52 @@ int main(void) {
 
             // write the title bro in the top left corner
             DrawTextEx(bigFont, PLOT_TITLE, (Vector2){ X_OFFSET, Y_OFFSET }, 36, 1, BLACK);
+            DrawText("Built by Eric Fang", WIDTH - 150, HEIGHT - 30, 12, DARKGRAY);
 
-            // watermark at the bottom right corner
-            // DrawTextEx(font, "Built by Eric Fang", (Vector2){ WIDTH - 100, HEIGHT - Y_OFFSET }, 12, 1, DARKGRAY);
-            DrawText("Built by Eric Fang", WIDTH - 100, HEIGHT - Y_OFFSET, 12, DARKGRAY);
+            // draw a box around the plot
+            Rectangle scissorArea = { X_OFFSET, 1.0f / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET, \
+                                            WIDTH - 2*X_OFFSET, PLOT_HEIGHT };
+            DrawRectangleLines(scissorArea.x - 1.0f, scissorArea.y - 1.0f, scissorArea.width + 2.0f, scissorArea.height + 2.0f, BLACK);
+
+            // draw line for every rectangle
+            for (int i = 2; i <= MAX_PLACEMENT; i++) {
+                float yPos = (i * PLOT_HEIGHT) / MAX_PLACEMENT - Y_OFFSET;
+                DrawLine(X_OFFSET, yPos, WIDTH - X_OFFSET, yPos, LIGHTGRAY);
+            }
 
             // PLOT LEVEL CHANGES
             ClearBackground(bgColor);
 
             DrawText(TextFormat("%.10s", prevTime), 
-                                PLOT_WIDTH, PLOT_HEIGHT + 80.0f - 30, 30, BLACK);
+                                PLOT_WIDTH, PLOT_HEIGHT - 80.0f - 30, 30, BLACK);
             DrawText(TextFormat("%.2f/day · %d streams", averagePlaycount, (int)cumulativePlaycount), 
-                                PLOT_WIDTH, PLOT_HEIGHT + 80.0f, 30, DARKGRAY);
+                                PLOT_WIDTH, PLOT_HEIGHT - 80.0f, 30, DARKGRAY);
 
-            // DrawTextEx(bigFont, TextFormat("%.10s", prevTime), 
-            //                     (Vector2){ PLOT_WIDTH, PLOT_HEIGHT + 80.0f - 32 }, 32, 1, BLACK);
-            // DrawTextEx(bigFont, TextFormat("%.2f/day · %d streams", averagePlaycount, (int)cumulativePlaycount), 
-            //                     (Vector2){ PLOT_WIDTH, PLOT_HEIGHT + 80.0f }, 32, 1, DARKGRAY);
-            
-            // draw x axis it is from 0 to max_playcount
-            // TODO make the axis move with max_playcount changes
             DrawLine(X_OFFSET, 
-                (MAX_PLACEMENT + 2.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET, 
+                (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET + 1.0f, 
                 WIDTH - X_OFFSET, 
-                (MAX_PLACEMENT + 2.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET, 
+                (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET + 1.0f, 
                 BLACK);
-            for (int x = 0; x <= 10; x++) {
-                float xPos = (x / 8.0f * PLOT_WIDTH) + X_OFFSET;
-                DrawLine(xPos, (MAX_PLACEMENT + 2.0f) / MAX_PLACEMENT * PLOT_HEIGHT - 5 - Y_OFFSET, xPos,
-                            (MAX_PLACEMENT + 2.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 5 - Y_OFFSET, BLACK);
-                    
-                const char *textToDraw = TextFormat("%d", (int)(x / 8.0f * max_playcount));
+
+            updateAxis(&xaxis, max_playcount);
+            for (int i = 0; i < xaxis.tickCount; i++) {
+                float xPos = (xaxis.tickValues[i] * PLOT_WIDTH) / xaxis.max + X_OFFSET;
+                DrawLine(xPos, (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT - 5 - Y_OFFSET, xPos,
+                            (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 5 - Y_OFFSET, BLACK);
+                
+                const char *textToDraw = TextFormat("%d", xaxis.tickValues[i]);
                 int centeredXPos = xPos - (MeasureText(textToDraw, 18) / 2);
                 DrawText(
                     textToDraw,
                     centeredXPos,
-                    (MAX_PLACEMENT + 2.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 6 - Y_OFFSET,
+                    (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 6 - Y_OFFSET,
                     18,
                     BLACK
                 );
             }
 
+            // begin scissor mode
+            BeginScissorMode(scissorArea.x, scissorArea.y, scissorArea.width, scissorArea.height);
             for (int i = 0; i < counter; i++) {
                 // SONG LEVEL CHANGES
                 if (!tracks[i].active) continue;
@@ -252,7 +263,6 @@ int main(void) {
                     tracks[i].currentAlpha = (sinValue * amplitude) + center;
 
                     DrawTextEx(font, TextFormat("%d ^^", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
-                    
                 }
                 else if (tracks[i].currentAlpha < 1.0f) {
                     float fadeBackSpeed = 2.0f;
@@ -260,8 +270,8 @@ int main(void) {
                     if (tracks[i].currentAlpha > 1.0f) {
                         tracks[i].currentAlpha = 1.0f;
                     }
-                    DrawTextEx(font, TextFormat("%d ^", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
                     
+                    DrawTextEx(font, TextFormat("%d ^", tracks[i].playcount), (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 44 }, 22, 1, BLUE);
                 }
 
                 Color finalColor = Fade(tracks[i].color, tracks[i].currentAlpha);
@@ -279,8 +289,8 @@ int main(void) {
                 // Text annotations
                 DrawTextEx(font, tracks[i].name, (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f }, 22, 1, BLACK);
                 DrawTextEx(font, tracks[i].artist, (Vector2){ tracks[i].size.x + 105.0f, tracks[i].position.y + tracks[i].size.y/13.0f + 22 }, 22, 1, DARKGRAY);
-                
             }
+            EndScissorMode();
             
         EndTextureMode();
         ClearBackground(bgColor);

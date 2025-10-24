@@ -16,7 +16,15 @@
 		"stdio.h": "c",
 		"string.h": "c",
 		"csvreader.h": "c",
-		"*.m": "c"
+		"*.m": "c",
+		"memory": "c",
+		"string": "c",
+		"type_traits": "c",
+		"utility": "c",
+		"vector": "c",
+		"xmemory": "c",
+		"xstring": "c",
+		"xutility": "c"
 	},
 	"editor.formatOnSave": false
 }
