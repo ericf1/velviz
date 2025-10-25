@@ -18,9 +18,9 @@
 #define MAX_PLACEMENT 10
 #define MAX_TRACKS 1024
 
-#define FPS 60
-
-#define PLOT_TITLE "Eric in 2023"
+#define PLOT_TITLE "Eric in 2024"
+#define DRAWING 0
+#define MUSIC 0
 
 typedef struct Track {
     Vector2 position;
@@ -30,10 +30,11 @@ typedef struct Track {
     float currentAlpha;
     char name[128];
     char artist[128];
-    int playcount;
+    float playcount;
     float playcountDiffDaily;
     bool active;
     Texture2D image;
+    int previousIndex;
 } Track;
 
 Color parse_color(const char *str) {
@@ -53,20 +54,19 @@ Color parse_color(const char *str) {
 
 int main(void) {
 
-    bool drawing = true;
-    bool music = false;
+    int FPS = 60;
+    if (MUSIC) FPS = 30;
 
-    if (!drawing) SetTraceLogLevel(LOG_NONE); else SetTraceLogLevel(LOG_WARNING);
+    if (!DRAWING) SetTraceLogLevel(LOG_NONE); else SetTraceLogLevel(LOG_WARNING);
     FFMPEG *ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
-    if (!ffmpeg) {
-        return 1;
-    }
-    if (!drawing) SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_UNFOCUSED);
-    if (!drawing) SetTargetFPS(0); else SetTargetFPS(FPS);
+    if (!ffmpeg) return 1;
+    if (!DRAWING) SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_UNFOCUSED);
+    if (!DRAWING) SetTargetFPS(0); else SetTargetFPS(FPS);
+    if (DRAWING) SetConfigFlags(FLAG_VSYNC_HINT);
 
     InitWindow(WIDTH, HEIGHT, "Velocity Visualization Renderer");
     Music bgMusic;
-    if (music) {
+    if (MUSIC) {
         InitAudioDevice();
         bgMusic = LoadMusicStream("C:\\Users\\human\\git\\song-timeline-visualization\\cache\\temp_velviz_audio.mp3");
         PlayMusicStream(bgMusic);
@@ -107,13 +107,14 @@ int main(void) {
         unsigned char b = (unsigned char)strtol(fields[5], NULL, 10);
         unsigned char a = (unsigned char)strtol(fields[6], NULL, 10);
 
-        tracks[counter].position = (Vector2){ X_OFFSET, 0.0f };
+        tracks[counter].position = (Vector2){ X_OFFSET, HEIGHT };
         tracks[counter].size = (Vector2){ PLOT_WIDTH * ((counter % (MAX_PLACEMENT + 1)) / (float)(MAX_PLACEMENT + 1)), 
             (float)PLOT_HEIGHT / MAX_PLACEMENT };
         tracks[counter].baseColor = (Color){ r, g, b, a };
         tracks[counter].barColor = (Color){ r, g, b, a };
         tracks[counter].active = 0;
         tracks[counter].currentAlpha = 1.0f;
+        tracks[counter].previousIndex = -1;
 
         if (remaining > 0) {
             chars_written = snprintf(ptr, remaining, "%s %s\n", fields[7], fields[8]);
@@ -142,7 +143,7 @@ int main(void) {
 
     // load like normal things with just 256 cause the characters should be simple
     Font bigFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 48, NULL, 0);
-    Font smallFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 12, NULL, 0);
+    Font smallFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 16, NULL, 0);
 
     // now on to the frames
     csv_open(&reader, "data/entire_df.csv");
@@ -204,14 +205,13 @@ int main(void) {
             
             // Process the row
             int index = (int)strtol(current_fields[11], NULL, 10);
-            float placement = (float)strtod(current_fields[1], NULL);
+            // float placement = (float)strtod(current_fields[1], NULL);
+             // tracks[index].position.y = placement / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET;
             tracks[index].active = 1;
-
-            tracks[index].position.y = placement / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET;
 
             float playcount = (float)strtod(current_fields[5], NULL);
             tracks[index].size.x = playcount / max_playcount * PLOT_WIDTH;
-            tracks[index].playcount = (int)playcount;
+            tracks[index].playcount = playcount;
 
             // 0.6h per frame, 40 frames per day
             float playcountDiffDaily = (float)strtod(current_fields[6], NULL) * 40.0f;
@@ -237,6 +237,7 @@ int main(void) {
             }
         }
 
+        // sort them
         for (int i = 0; i < activeTrackCount - 1; i++) {
             for (int j = i + 1; j < activeTrackCount; j++) {
                 if (activeTracks[i]->playcount > activeTracks[j]->playcount) {
@@ -247,19 +248,60 @@ int main(void) {
             }
         }
 
-        if (music) UpdateMusicStream(bgMusic);
-        if (drawing) BeginDrawing();
+
+        for (int i = 0; i < activeTrackCount; i++) {
+            if (activeTracks[i]->previousIndex == -1) continue;
+            if (activeTracks[i]->previousIndex == i) continue;
+
+            int prevIdx = activeTracks[i]->previousIndex;  // Save this first!
+            Track *prevTrack = activeTracks[prevIdx];
+            if (prevTrack->previousIndex == -1) continue;
+
+            // if the track at our previous position has playcount close to ours,
+            // swap back to previous positions to stay stable in the array
+            if (i == prevTrack->previousIndex && 
+                fabsf(prevTrack->playcount - activeTracks[i]->playcount) < 1.25f) {
+                Track* temp = activeTracks[i];
+                activeTracks[i] = activeTracks[prevIdx];
+                activeTracks[prevIdx] = temp;
+            }
+        }
+
+        
+
+        // assign positions based on sorted order
+        for (int i = 0; i < activeTrackCount; i++) {
+            float goalRank = (activeTrackCount) - i;
+            float goalPosition = goalRank / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET;
+
+            if (abs(activeTracks[i]->position.y - goalPosition) < 0.5f) {
+                activeTracks[i]->position.y = goalPosition;
+                continue;
+            }
+
+            activeTracks[i]->position.y += (goalPosition - activeTracks[i]->position.y) * 0.15f;
+            
+            activeTracks[i]->previousIndex = i;
+        }
+
+
+        if (MUSIC) UpdateMusicStream(bgMusic);
+        if (DRAWING) BeginDrawing();
         BeginTextureMode(screen);
 
             // write the title bro in the top left corner
             DrawTextEx(bigFont, PLOT_TITLE, (Vector2){ X_OFFSET, Y_OFFSET }, 48, 1, BLACK);
             // DrawText("Built by Eric Fang", WIDTH - 150, HEIGHT - 30, 12, DARKGRAY);
-            DrawTextEx(smallFont, "Built by Eric Fang", (Vector2){ WIDTH - 100, HEIGHT - 30 }, 12, 1, DARKGRAY);
+            DrawTextEx(smallFont, "Built by Eric Fang", (Vector2){ WIDTH - 125, HEIGHT - 30 }, 16, 1, DARKGRAY);
 
             // draw a box around the plot
             Rectangle scissorArea = { X_OFFSET, 1.0f / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET, \
                                             WIDTH - 2*X_OFFSET, PLOT_HEIGHT };
+            // draw "background" for the plot                                
+            DrawRectangle(scissorArea.x - 1.0f, scissorArea.y - 1.0f, scissorArea.width + 2.0f, scissorArea.height + 2.0f, bgColor);
             DrawRectangleLines(scissorArea.x - 1.0f, scissorArea.y - 1.0f, scissorArea.width + 2.0f, scissorArea.height + 2.0f, BLACK);
+            
+            
 
             // draw line for every rectangle
             for (int i = 2; i <= MAX_PLACEMENT; i++) {
@@ -268,7 +310,7 @@ int main(void) {
             }
 
             // PLOT LEVEL CHANGES
-            ClearBackground(bgColor);
+            ClearBackground(RAYWHITE);
 
             DrawText(TextFormat("%.10s", prevTime), 
                                 PLOT_WIDTH, PLOT_HEIGHT - 20.0f - 30, 30, BLACK);
@@ -338,7 +380,7 @@ int main(void) {
                     float vPulsed = baseHSV.z * pulse;
                     activeTracks[i]->barColor = ColorFromHSV(baseHSV.x, baseHSV.y, vPulsed);
 
-                    DrawTextEx(font, TextFormat("%d↑↑", activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
+                    DrawTextEx(font, TextFormat("%d↑↑", (int)activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
                 }
                 else if (abs(activeTracks[i]->barColor.r - activeTracks[i]->baseColor.r) > 10 ||
                         abs(activeTracks[i]->barColor.g - activeTracks[i]->baseColor.g) > 10 ||
@@ -349,7 +391,7 @@ int main(void) {
                     float vPulsed = baseHSV.z * pulse;
                     activeTracks[i]->barColor = ColorFromHSV(baseHSV.x, baseHSV.y, vPulsed);
 
-                    DrawTextEx(font, TextFormat("%d↑", activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
+                    DrawTextEx(font, TextFormat("%d↑", (int)activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
                 } else {
                     activeTracks[i]->barColor = activeTracks[i]->baseColor;
                 }
@@ -358,7 +400,7 @@ int main(void) {
                 Rectangle barRect = { activeTracks[i]->position.x, activeTracks[i]->position.y, activeTracks[i]->size.x, activeTracks[i]->size.y };
 
                 DrawRectangleRec(barRect, finalColor);
-                DrawTextEx(font, TextFormat("%d", activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
+                DrawTextEx(font, TextFormat("%d", (int)activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
 
                 Rectangle imageRect = { activeTracks[i]->size.x, activeTracks[i]->position.y, activeTracks[i]->size.y, activeTracks[i]->size.y };
                 DrawTexturePro(activeTracks[i]->image, 
@@ -376,15 +418,15 @@ int main(void) {
             EndScissorMode();
             
         EndTextureMode();
-        ClearBackground(bgColor);
+        ClearBackground(RAYWHITE);
         DrawTextureRec(
             screen.texture,
             (Rectangle){0, 0, (float)screen.texture.width, -(float)screen.texture.height},
             (Vector2){0, 0},
             WHITE
         );
-        if (drawing) DrawFPS(10, 10);
-        if (drawing) EndDrawing();
+        if (DRAWING) DrawFPS(10, 10);
+        if (DRAWING) EndDrawing();
         Image image = LoadImageFromTexture(screen.texture);
         ffmpeg_send_frame_flipped(ffmpeg, image.data, WIDTH, HEIGHT);
         UnloadImage(image);
@@ -400,7 +442,7 @@ int main(void) {
     }
     RL_FREE(tracks);
 
-    if (music) {
+    if (MUSIC) {
         CloseAudioDevice();
         UnloadMusicStream(bgMusic);
     }
