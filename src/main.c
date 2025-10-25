@@ -169,6 +169,7 @@ int main(void) {
         }
 
         char prevTime[CSV_MAX_FIELD_LEN];
+        char* fromTime;
         int havePrev = 0;
         float averagePlaycount = 0.0f;
         float cumulativePlaycount = 0.0f;
@@ -223,6 +224,8 @@ int main(void) {
             char* backgroundColorText = current_fields[8];
             bgColor = parse_color(backgroundColorText);
 
+            fromTime = current_fields[12];
+
             strncpy(prevTime, current_fields[0], sizeof(prevTime) - 1);
             prevTime[sizeof(prevTime) - 1] = '\0';
             havePrev = 1;
@@ -249,23 +252,23 @@ int main(void) {
         }
 
 
-        for (int i = 0; i < activeTrackCount; i++) {
-            if (activeTracks[i]->previousIndex == -1) continue;
-            if (activeTracks[i]->previousIndex == i) continue;
+        // for (int i = 0; i < activeTrackCount; i++) {
+        //     if (activeTracks[i]->previousIndex == -1) continue;
+        //     if (activeTracks[i]->previousIndex == i) continue;
 
-            int prevIdx = activeTracks[i]->previousIndex;  // Save this first!
-            Track *prevTrack = activeTracks[prevIdx];
-            if (prevTrack->previousIndex == -1) continue;
+        //     int prevIdx = activeTracks[i]->previousIndex;  // Save this first!
+        //     Track *prevTrack = activeTracks[prevIdx];
+        //     if (prevTrack->previousIndex == -1) continue;
 
-            // if the track at our previous position has playcount close to ours,
-            // swap back to previous positions to stay stable in the array
-            if (i == prevTrack->previousIndex && 
-                fabsf(prevTrack->playcount - activeTracks[i]->playcount) < 1.25f) {
-                Track* temp = activeTracks[i];
-                activeTracks[i] = activeTracks[prevIdx];
-                activeTracks[prevIdx] = temp;
-            }
-        }
+        //     // if the track at our previous position has playcount close to ours,
+        //     // swap back to previous positions to stay stable in the array
+        //     if (i == prevTrack->previousIndex && 
+        //         fabsf(prevTrack->playcount - activeTracks[i]->playcount) < 1.0f) {
+        //         Track* temp = activeTracks[i];
+        //         activeTracks[i] = activeTracks[prevIdx];
+        //         activeTracks[prevIdx] = temp;
+        //     }
+        // }
 
         
 
@@ -279,7 +282,7 @@ int main(void) {
                 continue;
             }
 
-            activeTracks[i]->position.y += (goalPosition - activeTracks[i]->position.y) * 0.15f;
+            activeTracks[i]->position.y += (goalPosition - activeTracks[i]->position.y) * 0.225f;
             
             activeTracks[i]->previousIndex = i;
         }
@@ -312,7 +315,7 @@ int main(void) {
             // PLOT LEVEL CHANGES
             ClearBackground(RAYWHITE);
 
-            DrawText(TextFormat("%.10s", prevTime), 
+            DrawText(TextFormat("%.10s to %.10s", fromTime, prevTime), 
                                 PLOT_WIDTH, PLOT_HEIGHT - 20.0f - 30, 30, BLACK);
             DrawText(TextFormat("%.2f/day · %d streams", averagePlaycount, (int)cumulativePlaycount), 
                                 PLOT_WIDTH, PLOT_HEIGHT - 20.0f, 30, DARKGRAY);
