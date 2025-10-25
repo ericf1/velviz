@@ -18,13 +18,15 @@
 #define MAX_PLACEMENT 10
 #define MAX_TRACKS 1024
 
-#define PLOT_TITLE "Eric in 2024"
-#define DRAWING 0
-#define MUSIC 0
+#define PLOT_TITLE "Eric and Taylor Swift"
+#define DRAWING 1
+#define MUSIC 1
+#define MASTER_TIME_DELTA "2h" // "0.6h" or "2h"
 
 typedef struct Track {
     Vector2 position;
     Vector2 size;
+    float placement;
     Color baseColor;
     Color barColor;
     float currentAlpha;
@@ -156,9 +158,9 @@ int main(void) {
     Color bgColor = RAYWHITE;
 
     bool running = true;
-    int frames = 0; // for counting
 
-    const float FIXED_DELTA_TIME = 1.0f / 60.0f; 
+    int frames = 0;
+    const float FIXED_DELTA_TIME = 1.0f / FPS; 
     float currentAnimationTime = 0.0f;
 
     while (running && !WindowShouldClose()) {
@@ -206,16 +208,24 @@ int main(void) {
             
             // Process the row
             int index = (int)strtol(current_fields[11], NULL, 10);
-            // float placement = (float)strtod(current_fields[1], NULL);
+            float placement = (float)strtod(current_fields[1], NULL);
              // tracks[index].position.y = placement / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET;
             tracks[index].active = 1;
+            tracks[index].placement = placement;
 
             float playcount = (float)strtod(current_fields[5], NULL);
             tracks[index].size.x = playcount / max_playcount * PLOT_WIDTH;
             tracks[index].playcount = playcount;
 
             // 0.6h per frame, 40 frames per day
-            float playcountDiffDaily = (float)strtod(current_fields[6], NULL) * 40.0f;
+            // 2h per frame, 12 frames per day
+            float framesPerDay = 0.0f;
+            if (MASTER_TIME_DELTA == "2h") {
+                framesPerDay = 12.0f;
+            } else {
+                framesPerDay = 40.0f;
+            }
+            float playcountDiffDaily = (float)strtod(current_fields[6], NULL) * framesPerDay;
             tracks[index].playcountDiffDaily = playcountDiffDaily;
 
             cumulativePlaycount = (float)strtod(current_fields[9], NULL);
@@ -240,10 +250,19 @@ int main(void) {
             }
         }
 
-        // sort them
+        // place the last track as the track with the lowest (best) placement
+        for (int i = 1; i < activeTrackCount; i++) {
+            if (activeTracks[i]->placement < activeTracks[activeTrackCount - 1]->placement) {
+                Track* temp = activeTracks[activeTrackCount - 1];
+                activeTracks[activeTrackCount - 1] = activeTracks[i];
+                activeTracks[i] = temp;
+            }
+        }
+
+        // sort the rest of the tracks by playcount descending
         for (int i = 0; i < activeTrackCount - 1; i++) {
-            for (int j = i + 1; j < activeTrackCount; j++) {
-                if (activeTracks[i]->playcount > activeTracks[j]->playcount) {
+            for (int j = i + 1; j < activeTrackCount - 1; j++) {
+                if (activeTracks[j]->playcount < activeTracks[i]->playcount) {
                     Track* temp = activeTracks[i];
                     activeTracks[i] = activeTracks[j];
                     activeTracks[j] = temp;
@@ -251,15 +270,12 @@ int main(void) {
             }
         }
 
-
         // for (int i = 0; i < activeTrackCount; i++) {
         //     if (activeTracks[i]->previousIndex == -1) continue;
         //     if (activeTracks[i]->previousIndex == i) continue;
-
         //     int prevIdx = activeTracks[i]->previousIndex;  // Save this first!
         //     Track *prevTrack = activeTracks[prevIdx];
         //     if (prevTrack->previousIndex == -1) continue;
-
         //     // if the track at our previous position has playcount close to ours,
         //     // swap back to previous positions to stay stable in the array
         //     if (i == prevTrack->previousIndex && 
@@ -269,8 +285,6 @@ int main(void) {
         //         activeTracks[prevIdx] = temp;
         //     }
         // }
-
-        
 
         // assign positions based on sorted order
         for (int i = 0; i < activeTrackCount; i++) {
@@ -282,7 +296,7 @@ int main(void) {
                 continue;
             }
 
-            activeTracks[i]->position.y += (goalPosition - activeTracks[i]->position.y) * 0.225f;
+            activeTracks[i]->position.y += (goalPosition - activeTracks[i]->position.y) * 0.2f;
             
             activeTracks[i]->previousIndex = i;
         }

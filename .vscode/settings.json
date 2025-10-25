@@ -24,7 +24,8 @@
 		"vector": "c",
 		"xmemory": "c",
 		"xstring": "c",
-		"xutility": "c"
+		"xutility": "c",
+		"cstdlib": "c"
 	},
 	"editor.formatOnSave": false
 }

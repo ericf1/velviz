@@ -13,7 +13,7 @@ BEGIN
       VALUE "FileDescription", "A cool game made with raylib (www.raylib.com)"
       VALUE "FileVersion", "1.0.0"
       VALUE "InternalName", "cool game"
-      VALUE "LegalCopyright", "(c) 2025 YOUR NAME"
+      VALUE "LegalCopyright", "(c) 2025 Eric Fang"
       //VALUE "OriginalFilename", "raylib_app"
       VALUE "ProductName", "A cool game"
       VALUE "ProductVersion", "1.0.0"

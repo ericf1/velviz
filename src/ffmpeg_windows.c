@@ -80,12 +80,11 @@ FFMPEG *ffmpeg_start_rendering(size_t width, size_t height, size_t fps)
         "-s %zux%zu -r %zu "
         "-i - "
         "-c:v h264_amf -quality quality -usage transcoding "
-        "-rc vbr_peak -qp_i 20 -qp_p 23 -qp_b 25 "
-        "-pix_fmt yuv420p "
-        "-an "
-        "output.mp4",
+        "-rc cqp -qp_i 21 -qp_p 24 -qp_b 26 -bf 2 "
+        "-pix_fmt yuv420p -an output.mp4",
         width, height, fps
     );
+
 
     BOOL bSuccess =
         CreateProcess(
