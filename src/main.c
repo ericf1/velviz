@@ -19,11 +19,13 @@
 #define MAX_TRACKS 1024
 
 #define PLOT_TITLE "Spotify in 2024"
-#define DRAWING 1
-#define MUSIC 1
+#define DRAWING 0
+#define MUSIC 0
 #define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h"
-#define DAILY 0
+#define DAILY 1
 #define BIG_NUMBER_MODE 1
+
+#define DATA_PATH "\\\\ERIC\\Users\\human\\git\\velviz\\data\\"
 
 typedef struct Track {
     Vector2 position;
@@ -88,13 +90,15 @@ int main(void) {
     if (!ffmpeg) return 1;
     if (!DRAWING) SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_UNFOCUSED);
     if (!DRAWING) SetTargetFPS(0); else SetTargetFPS(FPS);
-    if (DRAWING) SetConfigFlags(FLAG_VSYNC_HINT);
+    if (DRAWING) SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_UNDECORATED);
 
     InitWindow(WIDTH, HEIGHT, "Velocity Visualization Renderer");
     Music bgMusic;
     if (MUSIC) {
         InitAudioDevice();
-        bgMusic = LoadMusicStream("data/temp_velviz_audio.mp3");
+        bgMusic = LoadMusicStream(DATA_PATH "temp_velviz_audio.mp3");
+
+        
         PlayMusicStream(bgMusic);
         SetMusicVolume(bgMusic, 0.5f);
     }
@@ -109,7 +113,7 @@ int main(void) {
     int field_count;
 
     // instantiate every track
-    csv_open(&reader, "data/unique_songs_df.csv");
+    csv_open(&reader, DATA_PATH "unique_songs_df.csv");
 
     Track* tracks = (Track*)RL_CALLOC(MAX_TRACKS, sizeof(Track)); 
 
@@ -153,7 +157,7 @@ int main(void) {
         snprintf(tracks[counter].name, sizeof(tracks[counter].name), "%s", fields[7]);
         snprintf(tracks[counter].artist, sizeof(tracks[counter].artist), "%s", fields[8]);
 
-        snprintf(path_buffer, sizeof(path_buffer), "data/export_images/%d.png", counter);
+        snprintf(path_buffer, sizeof(path_buffer), DATA_PATH "export_images\\%d.png", counter);
 
         tracks[counter].image = LoadTexture(path_buffer);
 
@@ -172,7 +176,7 @@ int main(void) {
     Font smallFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 16, NULL, 0);
 
     // now on to the frames
-    csv_open(&reader, "data/entire_df.csv");
+    csv_open(&reader, DATA_PATH "entire_df.csv");
      
     static char buffered_fields[CSV_MAX_FIELDS][CSV_MAX_FIELD_LEN];
     static int have_buffered = 0;
@@ -379,7 +383,7 @@ int main(void) {
             char timeText[128];
             snprintf(timeText, sizeof(timeText),
                     timeFmt, fromTime, prevTime);
-            DrawText(timeText, PLOT_WIDTH - 20.0f, PLOT_HEIGHT - 50.0f, 30, BLACK);
+            DrawText(timeText, PLOT_WIDTH - 60.0f, PLOT_HEIGHT - 50.0f, 30, BLACK);
 
             char averageStreamsText[64];
             char cumulativePlaycountText[64];
@@ -398,8 +402,8 @@ int main(void) {
                     averagePlaycount, (int)cumulativePlaycount);
 
             // Draw the text
-            // DrawText(totalStreamsText, PLOT_WIDTH - 20.0f, PLOT_HEIGHT - 20.0f, 30, DARKGRAY);
-            DrawTextEx(bigFont, totalStreamsText, (Vector2){ PLOT_WIDTH - 20.0f, PLOT_HEIGHT - 20.0f }, 48, 1, DARKGRAY);
+            DrawText(totalStreamsText, PLOT_WIDTH - 60.0f, PLOT_HEIGHT - 20.0f, 30, DARKGRAY);
+            // DrawTextEx(bigFont, totalStreamsText, (Vector2){ PLOT_WIDTH - 20.0f, PLOT_HEIGHT - 20.0f }, 48, 1, DARKGRAY);
 
             DrawLine(X_OFFSET, 
                 (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET + 1.0f, 
@@ -409,19 +413,22 @@ int main(void) {
 
             updateAxis(&xaxis, max_playcount);
             for (int i = 0; i < xaxis.tickCount; i++) {
-                float xPos = (xaxis.tickValues[i] * PLOT_WIDTH) / xaxis.max + X_OFFSET;
+                float xPos = (xaxis.tickValues[i] * (float)PLOT_WIDTH) / xaxis.max + X_OFFSET;
                 DrawLine(xPos, (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT - 5 - Y_OFFSET, xPos,
                             (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 5 - Y_OFFSET, BLACK);
-                
-                const char *textToDraw = TextFormat("%d", xaxis.tickValues[i]);
-                int centeredXPos = xPos - (MeasureText(textToDraw, 18) / 2);
+
+                char tickLabel[32];
+                formatNumber(xaxis.tickValues[i], tickLabel, sizeof(tickLabel));
+                // const char *textToDraw = TextFormat("%s", tickLabel);
+                int centeredXPos = xPos - (MeasureText(tickLabel, 18) / 2);
                 DrawText(
-                    textToDraw,
+                    tickLabel,
                     centeredXPos,
                     (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 6 - Y_OFFSET,
                     18,
                     BLACK
                 );
+
             }
 
             // overlapping logic
