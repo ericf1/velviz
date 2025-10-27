@@ -18,10 +18,12 @@
 #define MAX_PLACEMENT 10
 #define MAX_TRACKS 1024
 
-#define PLOT_TITLE "Eric and Taylor Swift"
+#define PLOT_TITLE "Spotify in 2024"
 #define DRAWING 1
 #define MUSIC 1
-#define MASTER_TIME_DELTA "2h" // "0.6h" or "2h"
+#define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h"
+#define DAILY 0
+#define BIG_NUMBER_MODE 1
 
 typedef struct Track {
     Vector2 position;
@@ -54,6 +56,28 @@ Color parse_color(const char *str) {
     return color;
 }
 
+void formatNumber(double num, char *buffer, size_t size) {
+    if (num >= 1e9) {
+        snprintf(buffer, size, "%.2fB", num / 1e9);
+    } else if (num >= 1e6) {
+        snprintf(buffer, size, "%.2fM", num / 1e6);
+    } else if (num >= 1e3) {
+        snprintf(buffer, size, "%.2fK", num / 1e3);
+    } else {
+        snprintf(buffer, size, "%d", (int)num);
+    }
+
+    for (int i = 0; buffer[i] != '\0'; i++) {
+        if (buffer[i] == '.') {
+            char *end = buffer + i;
+            while (*end != '\0') end++;
+            while (end > buffer + i && (*(end - 1) == '0' || *(end - 1) == '.'))
+                *(--end) = '\0';
+            break;
+        }
+    }
+}
+
 int main(void) {
 
     int FPS = 60;
@@ -70,7 +94,7 @@ int main(void) {
     Music bgMusic;
     if (MUSIC) {
         InitAudioDevice();
-        bgMusic = LoadMusicStream("C:\\Users\\human\\git\\song-timeline-visualization\\cache\\temp_velviz_audio.mp3");
+        bgMusic = LoadMusicStream("data/temp_velviz_audio.mp3");
         PlayMusicStream(bgMusic);
         SetMusicVolume(bgMusic, 0.5f);
     }
@@ -129,7 +153,7 @@ int main(void) {
         snprintf(tracks[counter].name, sizeof(tracks[counter].name), "%s", fields[7]);
         snprintf(tracks[counter].artist, sizeof(tracks[counter].artist), "%s", fields[8]);
 
-        snprintf(path_buffer, sizeof(path_buffer), "C:\\Users\\human\\git\\song-timeline-visualization\\cache\\export_images\\%d.png", counter);
+        snprintf(path_buffer, sizeof(path_buffer), "data/export_images/%d.png", counter);
 
         tracks[counter].image = LoadTexture(path_buffer);
 
@@ -209,7 +233,7 @@ int main(void) {
             // Process the row
             int index = (int)strtol(current_fields[11], NULL, 10);
             float placement = (float)strtod(current_fields[1], NULL);
-             // tracks[index].position.y = placement / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET;
+            // tracks[index].position.y = placement / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET;
             tracks[index].active = 1;
             tracks[index].placement = placement;
 
@@ -250,19 +274,9 @@ int main(void) {
             }
         }
 
-        // place the last track as the track with the lowest (best) placement
-        for (int i = 1; i < activeTrackCount; i++) {
-            if (activeTracks[i]->placement < activeTracks[activeTrackCount - 1]->placement) {
-                Track* temp = activeTracks[activeTrackCount - 1];
-                activeTracks[activeTrackCount - 1] = activeTracks[i];
-                activeTracks[i] = temp;
-            }
-        }
-
-        // sort the rest of the tracks by playcount descending
-        for (int i = 0; i < activeTrackCount - 1; i++) {
-            for (int j = i + 1; j < activeTrackCount - 1; j++) {
-                if (activeTracks[j]->playcount < activeTracks[i]->playcount) {
+        for (int i = 0; i < activeTrackCount; i++) {
+            for (int j = i + 1; j < activeTrackCount; j++) {
+                if (activeTracks[j]->placement > activeTracks[i]->placement) {
                     Track* temp = activeTracks[i];
                     activeTracks[i] = activeTracks[j];
                     activeTracks[j] = temp;
@@ -271,20 +285,50 @@ int main(void) {
         }
 
         // for (int i = 0; i < activeTrackCount; i++) {
-        //     if (activeTracks[i]->previousIndex == -1) continue;
-        //     if (activeTracks[i]->previousIndex == i) continue;
-        //     int prevIdx = activeTracks[i]->previousIndex;  // Save this first!
-        //     Track *prevTrack = activeTracks[prevIdx];
-        //     if (prevTrack->previousIndex == -1) continue;
-        //     // if the track at our previous position has playcount close to ours,
-        //     // swap back to previous positions to stay stable in the array
-        //     if (i == prevTrack->previousIndex && 
-        //         fabsf(prevTrack->playcount - activeTracks[i]->playcount) < 1.0f) {
-        //         Track* temp = activeTracks[i];
-        //         activeTracks[i] = activeTracks[prevIdx];
-        //         activeTracks[prevIdx] = temp;
+        //     for (int j = i + 1; j < activeTrackCount; j++) {
+        //         if (activeTracks[j]->playcount < activeTracks[i]->playcount) {
+        //             Track* temp = activeTracks[i];
+        //             activeTracks[i] = activeTracks[j];
+        //             activeTracks[j] = temp;
+        //         }
         //     }
         // }
+
+        // // place the last track as the track with the lowest (best) placement
+        // for (int i = 0; i < activeTrackCount; i++) {
+        //     if (activeTracks[i]->placement < activeTracks[activeTrackCount - 1]->placement) {
+        //         Track* temp = activeTracks[activeTrackCount - 1];
+        //         activeTracks[activeTrackCount - 1] = activeTracks[i];
+        //         activeTracks[i] = temp;
+        //     }
+        // }
+        // // sort the rest of the tracks by playcount ascending
+        // for (int i = 0; i < activeTrackCount - 1; i++) {
+        //     for (int j = i + 1; j < activeTrackCount - 1; j++) {
+        //         if (activeTracks[j]->playcount < activeTracks[i]->playcount) {
+        //             Track* temp = activeTracks[i];
+        //             activeTracks[i] = activeTracks[j];
+        //             activeTracks[j] = temp;
+        //         }
+        //     }
+        // }
+
+        // stablize every track except for the last one cause that one is stablized above
+        for (int i = 0; i < activeTrackCount - 1; i++) {
+            if (activeTracks[i]->previousIndex == -1) continue;
+            if (activeTracks[i]->previousIndex == i) continue;
+            int prevIdx = activeTracks[i]->previousIndex;  // Save this first!
+            Track *prevTrack = activeTracks[prevIdx];
+            if (prevTrack->previousIndex == -1) continue;
+            // if the track at our previous position has playcount close to ours,
+            // swap back to previous positions to stay stable in the array
+            if (i == prevTrack->previousIndex && 
+                fabsf(prevTrack->playcount - activeTracks[i]->playcount) == 0.0f) {
+                Track* temp = activeTracks[i];
+                activeTracks[i] = activeTracks[prevIdx];
+                activeTracks[prevIdx] = temp;
+            }
+        }
 
         // assign positions based on sorted order
         for (int i = 0; i < activeTrackCount; i++) {
@@ -296,7 +340,7 @@ int main(void) {
                 continue;
             }
 
-            activeTracks[i]->position.y += (goalPosition - activeTracks[i]->position.y) * 0.2f;
+            activeTracks[i]->position.y += (goalPosition - activeTracks[i]->position.y) * 0.25f;
             
             activeTracks[i]->previousIndex = i;
         }
@@ -329,10 +373,33 @@ int main(void) {
             // PLOT LEVEL CHANGES
             ClearBackground(RAYWHITE);
 
-            DrawText(TextFormat("%.10s to %.10s", fromTime, prevTime), 
-                                PLOT_WIDTH, PLOT_HEIGHT - 20.0f - 30, 30, BLACK);
-            DrawText(TextFormat("%.2f/day · %d streams", averagePlaycount, (int)cumulativePlaycount), 
-                                PLOT_WIDTH, PLOT_HEIGHT - 20.0f, 30, DARKGRAY);
+            const char* timeFmt = DAILY
+                ? "%.10s"
+                : "%.10s to %.10s";
+            char timeText[128];
+            snprintf(timeText, sizeof(timeText),
+                    timeFmt, fromTime, prevTime);
+            DrawText(timeText, PLOT_WIDTH - 20.0f, PLOT_HEIGHT - 50.0f, 30, BLACK);
+
+            char averageStreamsText[64];
+            char cumulativePlaycountText[64];
+            char totalStreamsText[128];
+
+            // Format the numbers nicely (e.g. 3.5M, 820K)
+            formatNumber(averagePlaycount, averageStreamsText, sizeof(averageStreamsText));
+            formatNumber(cumulativePlaycount, cumulativePlaycountText, sizeof(cumulativePlaycountText));
+
+            // Choose output style depending on mode
+            snprintf(totalStreamsText, sizeof(totalStreamsText),
+                    BIG_NUMBER_MODE
+                    ? "%s/day · %s streams"
+                    : "%.2f/day · %d streams",
+                    averageStreamsText, cumulativePlaycountText,
+                    averagePlaycount, (int)cumulativePlaycount);
+
+            // Draw the text
+            // DrawText(totalStreamsText, PLOT_WIDTH - 20.0f, PLOT_HEIGHT - 20.0f, 30, DARKGRAY);
+            DrawTextEx(bigFont, totalStreamsText, (Vector2){ PLOT_WIDTH - 20.0f, PLOT_HEIGHT - 20.0f }, 48, 1, DARKGRAY);
 
             DrawLine(X_OFFSET, 
                 (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET + 1.0f, 
@@ -391,13 +458,19 @@ int main(void) {
             BeginScissorMode(scissorArea.x, scissorArea.y, scissorArea.width, scissorArea.height);
             for (int i = 0; i < activeTrackCount; i++) {
                 // SONG LEVEL CHANGES
-                if (activeTracks[i]->playcountDiffDaily >= 8.0f) {
+                char playcountText[32];
+                playcountText[0] = '\0';
+
+                float songsThresholdDaily = BIG_NUMBER_MODE ? 500000.0f : 8.0f;
+
+                if (activeTracks[i]->playcountDiffDaily >= songsThresholdDaily) {
                     Vector3 baseHSV = ColorToHSV(activeTracks[i]->baseColor);
                     float pulse = 0.9f + 0.1f * sinf(currentAnimationTime * 10.0f);
                     float vPulsed = baseHSV.z * pulse;
                     activeTracks[i]->barColor = ColorFromHSV(baseHSV.x, baseHSV.y, vPulsed);
 
-                    DrawTextEx(font, TextFormat("%d↑↑", (int)activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
+                    formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
+                    strcat(playcountText, "↑↑");
                 }
                 else if (abs(activeTracks[i]->barColor.r - activeTracks[i]->baseColor.r) > 10 ||
                         abs(activeTracks[i]->barColor.g - activeTracks[i]->baseColor.g) > 10 ||
@@ -408,7 +481,8 @@ int main(void) {
                     float vPulsed = baseHSV.z * pulse;
                     activeTracks[i]->barColor = ColorFromHSV(baseHSV.x, baseHSV.y, vPulsed);
 
-                    DrawTextEx(font, TextFormat("%d↑", (int)activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
+                    formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
+                    strcat(playcountText, "↑");
                 } else {
                     activeTracks[i]->barColor = activeTracks[i]->baseColor;
                 }
@@ -417,7 +491,10 @@ int main(void) {
                 Rectangle barRect = { activeTracks[i]->position.x, activeTracks[i]->position.y, activeTracks[i]->size.x, activeTracks[i]->size.y };
 
                 DrawRectangleRec(barRect, finalColor);
-                DrawTextEx(font, TextFormat("%d", (int)activeTracks[i]->playcount), (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
+
+
+                if (playcountText[0] == '\0') formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
+                DrawTextEx(font, playcountText, (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
 
                 Rectangle imageRect = { activeTracks[i]->size.x, activeTracks[i]->position.y, activeTracks[i]->size.y, activeTracks[i]->size.y };
                 DrawTexturePro(activeTracks[i]->image, 

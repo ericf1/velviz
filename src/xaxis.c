@@ -19,8 +19,12 @@ void updateAxis(Axis* ax, float newMax) {
         tickInterval = 5;
     } else if (newMax <= 100) {
         tickInterval = 10;
-    } else {
+    } else if (newMax <= 200) {
         tickInterval = 20;
+    } else if (newMax <= 500) {
+        tickInterval = 50;
+    } else {
+        tickInterval = 500000;
     }
 
     ax->max = newMax;
