@@ -19,11 +19,12 @@
 #define MAX_TRACKS 1024
 
 #define PLOT_TITLE "Spotify in 2024"
-#define DRAWING 0
+#define DRAWING 1
 #define MUSIC 0
 #define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h"
 #define DAILY 1
 #define BIG_NUMBER_MODE 1
+#define FPS 60
 
 #define DATA_PATH "\\\\ERIC\\Users\\human\\git\\velviz\\data\\"
 
@@ -82,9 +83,6 @@ void formatNumber(double num, char *buffer, size_t size) {
 
 int main(void) {
 
-    int FPS = 60;
-    if (MUSIC) FPS = 30;
-
     if (!DRAWING) SetTraceLogLevel(LOG_NONE); else SetTraceLogLevel(LOG_WARNING);
     FFMPEG *ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
     if (!ffmpeg) return 1;
@@ -97,8 +95,6 @@ int main(void) {
     if (MUSIC) {
         InitAudioDevice();
         bgMusic = LoadMusicStream(DATA_PATH "temp_velviz_audio.mp3");
-
-        
         PlayMusicStream(bgMusic);
         SetMusicVolume(bgMusic, 0.5f);
     }
@@ -190,8 +186,10 @@ int main(void) {
     int frames = 0;
     const float FIXED_DELTA_TIME = 1.0f / FPS; 
     float currentAnimationTime = 0.0f;
+    static double start;
 
     while (running && !WindowShouldClose()) {
+    if (frames == 144) start = GetTime();
 
         // disable all tracks
         for (int i = 0; i < counter; i++) {
@@ -518,22 +516,31 @@ int main(void) {
             }
             EndScissorMode();
             
+            
         EndTextureMode();
-        ClearBackground(RAYWHITE);
-        DrawTextureRec(
-            screen.texture,
-            (Rectangle){0, 0, (float)screen.texture.width, -(float)screen.texture.height},
-            (Vector2){0, 0},
-            WHITE
-        );
-        if (DRAWING) DrawFPS(10, 10);
-        if (DRAWING) EndDrawing();
+        if (DRAWING)  {
+            DrawTextureRec(
+                screen.texture,
+                (Rectangle){0, 0, screen.texture.width, -screen.texture.height},
+                (Vector2){0, 0},
+                WHITE
+            );
+            ClearBackground(RAYWHITE);
+            DrawFPS(10, 10);
+            EndDrawing();
+        }
         Image image = LoadImageFromTexture(screen.texture);
         ffmpeg_send_frame_flipped(ffmpeg, image.data, WIDTH, HEIGHT);
         UnloadImage(image);
 
         frames++;
-        fprintf(stderr, "Rendered frame %d\r", frames);
+        if (frames % 144 == 0 && frames > 144) {
+            double elapsed = GetTime() - start;
+            fprintf(stderr, "Frame %d | elapsed %.3fs | avg FPS %.1f\r",
+                    frames, elapsed, frames / elapsed);
+            fflush(stderr);
+        }
+
         currentAnimationTime += FIXED_DELTA_TIME;
     }
 
