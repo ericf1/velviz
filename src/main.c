@@ -21,13 +21,14 @@
 
 // #define PLOT_TITLE "How The Top Companies By Market Cap Got There Since 2010 (in USD)"
 // #define PLOT_TITLE "US Spotify in 2024"
-#define PLOT_TITLE "Eric in 2024"
-#define DRAWING 0
+#define PLOT_TITLE "Eric's Artists in 2024"
+#define DRAWING 1
 #define MUSIC 0
 #define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h" or "4h"
 #define DAILY 0
 #define BIG_NUMBER_MODE 0
 #define MONEY_MODE 0
+#define ARTIST_MODE 1
 #define FPS 60
 
 #define DATA_PATH "\\\\ERIC\\Users\\human\\git\\velviz\\data\\"
@@ -62,6 +63,38 @@ Color parse_color(const char *str) {
     }
     
     return color;
+}
+
+char *read_file_to_char_array(const char *filename, size_t *out_size) {
+    FILE *file = fopen(filename, "rb");  // "rb" = read binary
+    if (!file) {
+        perror("Failed to open file");
+        return NULL;
+    }
+
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    rewind(file);
+
+    // Allocate buffer (+1 for null terminator)
+    char *buffer = malloc(file_size + 1);
+    if (!buffer) {
+        fclose(file);
+        perror("Failed to allocate buffer");
+        return NULL;
+    }
+
+    // Read contents
+    size_t read_size = fread(buffer, 1, file_size, file);
+    buffer[read_size] = '\0';  // null terminate (useful if it's text)
+
+    fclose(file);
+
+    if (out_size)
+        *out_size = read_size;
+
+    return buffer;
 }
 
 void formatNumber(double num, char *buffer, size_t size) {
@@ -179,6 +212,18 @@ int main(void) {
     csv_close(&reader);
 
     int codepointCount = 0;
+    if (ARTIST_MODE) {
+        size_t size;
+        char *glyphs = read_file_to_char_array(DATA_PATH "unique_title_chars.txt", NULL);
+
+        if (glyphs) {
+            // merge it into all_text and add to codepoints
+            strncat(all_text, glyphs, ALL_TEXT_SIZE - strlen(all_text) - 1);
+            free(glyphs);
+        }
+    }
+    printf("All text for codepoints: %s\n", all_text);
+   
     int *codepoints = LoadCodepoints(all_text, &codepointCount);
     int normalFontSize = 24;
     Font normalFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", normalFontSize, codepoints, codepointCount);
@@ -256,13 +301,15 @@ int main(void) {
                 have_buffered = 1;
                 break;
             }
-            
             // Process the row
             int index = (int)strtol(current_fields[11], NULL, 10);
             float placement = (float)strtod(current_fields[1], NULL);
             // tracks[index].position.y = placement / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET;
             tracks[index].active = 1;
             tracks[index].placement = placement;
+
+            // update the name of the track from current_fields[2]
+            if (ARTIST_MODE) snprintf(tracks[index].name, sizeof(tracks[index].name), "%s", current_fields[2]);
 
             float playcount = (float)strtod(current_fields[5], NULL);
             tracks[index].size.x = playcount / max_playcount * PLOT_WIDTH;
@@ -544,11 +591,30 @@ int main(void) {
                 Rectangle barRect = { activeTracks[i]->position.x, activeTracks[i]->position.y, activeTracks[i]->size.x, activeTracks[i]->size.y };
                 DrawRectangleRec(barRect, finalColor);
 
-                Rectangle imageRect = { activeTracks[i]->size.x, activeTracks[i]->position.y, activeTracks[i]->size.y, activeTracks[i]->size.y };
-                DrawTexturePro(activeTracks[i]->image, 
-                    (Rectangle){ 0, 0, activeTracks[i]->image.width, activeTracks[i]->image.height },
-                    imageRect,
-                    (Vector2){ 0, 0 },  
+                Texture2D img = activeTracks[i]->image;
+                int cropSize = (img.width < img.height) ? img.width : img.height;
+                int offsetX = (img.width  - cropSize) / 2;
+                int offsetY = (img.height - cropSize) / 2;
+
+                Rectangle src = {
+                    offsetX,
+                    offsetY,
+                    (float)cropSize,
+                    (float)cropSize
+                };
+
+                Rectangle dst = {
+                    activeTracks[i]->size.x,
+                    activeTracks[i]->position.y,
+                    activeTracks[i]->size.y,
+                    activeTracks[i]->size.y  // destination is square
+                };
+
+                DrawTexturePro(
+                    img,
+                    src,         // cropped source region
+                    dst,         // draw region (resized)
+                    (Vector2){0, 0},
                     0.0f,
                     WHITE
                 );
@@ -573,7 +639,7 @@ int main(void) {
                 //         (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
                 //         normalFontSize, 1, BLUE);
                 // } else {
-                    DrawTextEx(normalFont, 
+                DrawTextEx(normalFont, 
                     playcountText, 
                     (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
                     normalFontSize, 1, BLUE);
