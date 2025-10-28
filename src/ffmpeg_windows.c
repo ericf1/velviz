@@ -34,7 +34,7 @@ static LPSTR GetLastErrorAsString(void)
     return messageBuffer;
 }
 
-FFMPEG *ffmpeg_start_rendering(size_t width, size_t height, size_t fps)
+FFMPEG *ffmpeg_start_rendering(size_t width, size_t height, size_t fps, const char *path)
 {
     HANDLE pipe_read;
     HANDLE pipe_write;
@@ -82,8 +82,8 @@ FFMPEG *ffmpeg_start_rendering(size_t width, size_t height, size_t fps)
         "-c:v h264_amf -quality balanced -usage transcoding "
         "-rc vbr_peak -qmin 20 -qmax 28 -b:v 12M -maxrate 15M " // VBR for better quality/speed
         "-bf 3 -refs 2 " // More B-frames and reference frames
-        "-pix_fmt yuv420p -an output/output.mp4",
-        width, height, fps
+        "-pix_fmt yuv420p -an %soutput.mp4",
+        width, height, fps, path
     );
 
     BOOL bSuccess =

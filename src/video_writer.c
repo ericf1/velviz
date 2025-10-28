@@ -17,14 +17,14 @@ static DWORD WINAPI EncoderThread(LPVOID param) {
     return 0;
 }
 
-void videoWriterInit(VideoWriter *vw, int width, int height, int fps) {
+void videoWriterInit(VideoWriter *vw, int width, int height, int fps, const char *output_path) {
     vw->width  = width;
     vw->height = height;
     vw->fps    = fps;
     vw->running = 1;
 
     initFrameQueue();
-    vw->ffmpeg = ffmpeg_start_rendering(width, height, fps);
+    vw->ffmpeg = ffmpeg_start_rendering(width, height, fps, output_path);
     vw->threadHandle = CreateThread(
         NULL,           // default security
         0,              // default stack size

@@ -5,7 +5,7 @@
 
 typedef struct FFMPEG FFMPEG;
 
-FFMPEG *ffmpeg_start_rendering(size_t width, size_t height, size_t fps);
+FFMPEG *ffmpeg_start_rendering(size_t width, size_t height, size_t fps, const char *path);
 // TODO: handle potential error that may happen in all of the ffmpeg function
 void ffmpeg_send_frame(FFMPEG *ffmpeg, void *data, size_t width, size_t height);
 // TODO: use -vflip of ffmpeg instead

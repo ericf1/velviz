@@ -2,9 +2,9 @@
 #define AXIS_H
 
 typedef struct {
-    float max;          // current max visible value
+    float max;         // current max visible value
     int tickCount;  // number of ticks
-    int tickValues[32];    // tick values
+    float tickValues[32];    // tick values
 } Axis;
 
 /**

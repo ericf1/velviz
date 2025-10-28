@@ -47,30 +47,30 @@ void destroyFrameQueue() {
 void enqueueFrame(const Image *frameIn) {
     EnterCriticalSection(&queueLock);
 
+    // Wait WHILE the queue is full, as long as the queue is running
+    while (count == MAX_QUEUE && queueRunning) {
+        // This will "unlock" the lock and put this thread to sleep.
+        // It will re-acquire the lock when it wakes up.
+        SleepConditionVariableCS(&queueNotFull, &queueLock, INFINITE);
+    }
+
+    // After waking up, check if we're stopping
     if (!queueRunning) {
         LeaveCriticalSection(&queueLock);
         return; // shutting down, ignore
     }
 
-    // If the queue is full, drop the oldest frame to make room.
-    // This prevents the render thread from blocking and tanking FPS.
-    if (count == MAX_QUEUE) {
-        // Drop head
-        if (frameQueue[head].valid) {
-            UnloadImage(frameQueue[head].frame);
-            frameQueue[head].valid = false;
-        }
-        head = (head + 1) % MAX_QUEUE;
-        count--;
-    }
+    // --- We REMOVED the old "if (count == MAX_QUEUE)" block ---
+    // At this point, we are 100% sure the queue is not full.
 
     // Move (take ownership of) the Image instead of copying pixel data.
-    frameQueue[tail].frame = *frameIn;   // shallow struct copy (pointer + metadata)
+    frameQueue[tail].frame = *frameIn; // shallow struct copy (pointer + metadata)
     frameQueue[tail].valid = true;
 
     tail = (tail + 1) % MAX_QUEUE;
     count++;
 
+    // Signal the *consumer* thread (in dequeueFrame) that a frame is ready
     WakeConditionVariable(&queueNotEmpty);
     LeaveCriticalSection(&queueLock);
 }

@@ -15,7 +15,7 @@ typedef struct VideoWriter {
 } VideoWriter;
 
 
-void videoWriterInit(VideoWriter *vw, int width, int height, int fps);
+void videoWriterInit(VideoWriter *vw, int width, int height, int fps, const char *output_path);
 void videoWriterPushFrame(VideoWriter *vw, Image *img);
 void videoWriterStop(VideoWriter *vw);
 

@@ -19,15 +19,18 @@
 #define MAX_PLACEMENT 10
 #define MAX_TRACKS 1024
 
-#define PLOT_TITLE "Spotify in 2024"
+// #define PLOT_TITLE "How The Top Companies By Market Cap Got There Since 2010"
+#define PLOT_TITLE "US Spotify in 2024"
 #define DRAWING 0
 #define MUSIC 0
-#define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h"
+#define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h" or "4h"
 #define DAILY 1
 #define BIG_NUMBER_MODE 1
+#define MONEY_MODE 0
 #define FPS 60
 
 #define DATA_PATH "\\\\ERIC\\Users\\human\\git\\velviz\\data\\"
+#define OUTPUT_PATH "C:\\Users\\Eric\\Documents\\GitHub\\velviz\\output\\"
 
 typedef struct Track {
     Vector2 position;
@@ -61,7 +64,9 @@ Color parse_color(const char *str) {
 }
 
 void formatNumber(double num, char *buffer, size_t size) {
-    if (num >= 1e9) {
+    if (num >= 1e12) {
+        snprintf(buffer, size, "%.2fT", num / 1e12);
+    } else if (num >= 1e9) {
         snprintf(buffer, size, "%.2fB", num / 1e9);
     } else if (num >= 1e6) {
         snprintf(buffer, size, "%.2fM", num / 1e6);
@@ -87,16 +92,16 @@ int main(void) {
     // if (!ffmpeg) return 1;
 
     VideoWriter vw;
-    videoWriterInit(&vw, WIDTH, HEIGHT, FPS);
+    videoWriterInit(&vw, WIDTH, HEIGHT, FPS, OUTPUT_PATH);
 
     if (DRAWING) {
-        SetTargetFPS(FPS);
         SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_UNDECORATED);
         SetTraceLogLevel(LOG_WARNING);
+        SetTargetFPS(FPS);
     } else {
-        SetTargetFPS(0);
         SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_UNFOCUSED);
         SetTraceLogLevel(LOG_NONE);
+        SetTargetFPS(0);
     }
 
     InitWindow(WIDTH, HEIGHT, "Velocity Visualization Renderer");
@@ -166,19 +171,29 @@ int main(void) {
 
         tracks[counter].image = LoadTexture(path_buffer);
 
+        // printf("Loaded track %d: %s by %s\n", counter, tracks[counter].name, tracks[counter].artist);
+
         counter++;
     }
     csv_close(&reader);
 
     int codepointCount = 0;
     int *codepoints = LoadCodepoints(all_text, &codepointCount);
-    Font font = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 22, codepoints, codepointCount);    
-    
+    int normalFontSize = 24;
+    Font normalFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", normalFontSize, codepoints, codepointCount);
+
     UnloadCodepoints(codepoints);
 
     // load like normal things with just 256 cause the characters should be simple
     Font bigFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 48, NULL, 0);
-    Font smallFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 16, NULL, 0);
+    Font tinyFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 16, NULL, 0);
+    Font smallFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", 20, NULL, 0);
+    
+    int medCodepoints[96 + 1];  // 95 ASCII chars + 1 for '·'
+    for (int i = 0; i < 95; i++) medCodepoints[i] = 32 + i;  // ASCII range
+    medCodepoints[95] = 0x00B7;  // add middle dot
+    int mediumFontSize = 34;
+    Font mediumFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", mediumFontSize, medCodepoints, 96);
 
     // now on to the frames
     csv_open(&reader, DATA_PATH "entire_df.csv");
@@ -254,10 +269,12 @@ int main(void) {
 
             // 0.6h per frame, 40 frames per day
             // 2h per frame, 12 frames per day
-            float framesPerDay = 0.0f;
-            if (MASTER_TIME_DELTA == "2h") {
+            float framesPerDay;
+            if (MASTER_TIME_DELTA == "4h") {
+                framesPerDay = 6.0f;
+            } else if (MASTER_TIME_DELTA == "2h") {
                 framesPerDay = 12.0f;
-            } else {
+            } else { // default to 0.6h
                 framesPerDay = 40.0f;
             }
             float playcountDiffDaily = (float)strtod(current_fields[6], NULL) * framesPerDay;
@@ -363,10 +380,10 @@ int main(void) {
 
             // write the title bro in the top left corner
             DrawTextEx(bigFont, PLOT_TITLE, (Vector2){ X_OFFSET, Y_OFFSET }, 48, 1, BLACK);
-            DrawTextEx(smallFont, "Built by Eric Fang", (Vector2){ WIDTH - 125, HEIGHT - 30 }, 16, 1, DARKGRAY);
+            DrawTextEx(tinyFont, "Built by Eric Fang", (Vector2){ WIDTH - 125, HEIGHT - 30 }, 16, 1, DARKGRAY);
 
             // draw a box around the plot
-            Rectangle scissorArea = { X_OFFSET, 1.0f / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET, \
+            Rectangle scissorArea = { X_OFFSET, 1.0f / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET,
                                             WIDTH - 2*X_OFFSET, PLOT_HEIGHT };                         
             DrawRectangle(scissorArea.x - 1.0f, scissorArea.y - 1.0f, scissorArea.width + 2.0f, scissorArea.height + 2.0f, bgColor);
             DrawRectangleLines(scissorArea.x - 1.0f, scissorArea.y - 1.0f, scissorArea.width + 2.0f, scissorArea.height + 2.0f, BLACK);
@@ -383,30 +400,39 @@ int main(void) {
             const char* timeFmt = DAILY
                 ? "%.10s"
                 : "%.10s to %.10s";
-            char timeText[128];
-            snprintf(timeText, sizeof(timeText),
-                    timeFmt, fromTime, prevTime);
-            DrawText(timeText, PLOT_WIDTH - 60.0f, PLOT_HEIGHT - 50.0f, 30, BLACK);
+            char timeText[256];
+            snprintf(timeText, sizeof(timeText), timeFmt, fromTime, prevTime);
+            // DrawText(timeText, PLOT_WIDTH - 60.0f, PLOT_HEIGHT - 50.0f, 30, BLACK);
 
             char averageStreamsText[64];
             char cumulativePlaycountText[64];
             char totalStreamsText[128];
-
-            // Format the numbers nicely (e.g. 3.5M, 820K)
             formatNumber(averagePlaycount, averageStreamsText, sizeof(averageStreamsText));
             formatNumber(cumulativePlaycount, cumulativePlaycountText, sizeof(cumulativePlaycountText));
 
             // Choose output style depending on mode
+            if (MONEY_MODE) {
+                snprintf(totalStreamsText, sizeof(totalStreamsText),
+                    BIG_NUMBER_MODE
+                    ? "%s/day"
+                    : "%.2f/day",
+                    averageStreamsText,
+                    averagePlaycount);
+            }  else {
             snprintf(totalStreamsText, sizeof(totalStreamsText),
                     BIG_NUMBER_MODE
-                    ? "%s/day · %s streams"
-                    : "%.2f/day · %d streams",
+                    ? "%s/day \u00B7 %s streams"
+                    : "%.2f/day \u00B7 %d streams",
                     averageStreamsText, cumulativePlaycountText,
                     averagePlaycount, (int)cumulativePlaycount);
+            }
+            // DrawText(totalStreamsText, PLOT_WIDTH - 60.0f, PLOT_HEIGHT - 20.0f, 30, DARKGRAY);
 
-            // Draw the text
-            DrawText(totalStreamsText, PLOT_WIDTH - 60.0f, PLOT_HEIGHT - 20.0f, 30, DARKGRAY);
-            // DrawTextEx(bigFont, totalStreamsText, (Vector2){ PLOT_WIDTH - 20.0f, PLOT_HEIGHT - 20.0f }, 48, 1, DARKGRAY);
+            char combinedText[256];
+            snprintf(combinedText, sizeof(combinedText), "%s  |  %s", timeText, totalStreamsText);
+            float xOffset = MeasureTextEx(mediumFont, combinedText, mediumFontSize, 1).x;
+            // float yOffset = MeasureTextEx(mediumFont, PLOT_TITLE, 48, 1).y;
+            DrawTextEx(mediumFont, combinedText, (Vector2){ WIDTH - xOffset - X_OFFSET, Y_OFFSET + 12.0f }, mediumFontSize, 1, BLACK);
 
             DrawLine(X_OFFSET, 
                 (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET + 1.0f, 
@@ -424,14 +450,21 @@ int main(void) {
                 formatNumber(xaxis.tickValues[i], tickLabel, sizeof(tickLabel));
                 // const char *textToDraw = TextFormat("%s", tickLabel);
                 int centeredXPos = xPos - (MeasureText(tickLabel, 18) / 2);
-                DrawText(
+                // DrawText(
+                //     tickLabel,
+                //     centeredXPos,
+                //     (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 6 - Y_OFFSET,
+                //     18,
+                //     BLACK
+                // );
+                DrawTextEx(
+                    smallFont,
                     tickLabel,
-                    centeredXPos,
-                    (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 6 - Y_OFFSET,
-                    18,
+                    (Vector2){ centeredXPos, (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 6 - Y_OFFSET },
+                    20,
+                    1,
                     BLACK
                 );
-
             }
 
             // overlapping logic
@@ -471,7 +504,18 @@ int main(void) {
                 char playcountText[32];
                 playcountText[0] = '\0';
 
-                float songsThresholdDaily = BIG_NUMBER_MODE ? 500000.0f : 8.0f;
+                float songsThresholdDaily;
+
+                // if playcount exceeds 1 billion set threshold to 5 billion
+                if (activeTracks[i]->playcount >= 1e9) {
+                    songsThresholdDaily = 500000000000.0f;
+                } else if (activeTracks[i]->playcount >= 1e8) {
+                    songsThresholdDaily = 100000000000.0f;
+                } else if (activeTracks[i]->playcount >= 1e7) {
+                    songsThresholdDaily = 50000000000.0f;
+                } else {
+                    songsThresholdDaily = BIG_NUMBER_MODE ? 500000.0f : 8.0f;
+                }
 
                 if (activeTracks[i]->playcountDiffDaily >= songsThresholdDaily) {
                     Vector3 baseHSV = ColorToHSV(activeTracks[i]->baseColor);
@@ -496,15 +540,11 @@ int main(void) {
                 } else {
                     activeTracks[i]->barColor = activeTracks[i]->baseColor;
                 }
+                if (playcountText[0] == '\0') formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
 
                 Color finalColor = Fade(activeTracks[i]->barColor, activeTracks[i]->currentAlpha);
                 Rectangle barRect = { activeTracks[i]->position.x, activeTracks[i]->position.y, activeTracks[i]->size.x, activeTracks[i]->size.y };
-
                 DrawRectangleRec(barRect, finalColor);
-
-
-                if (playcountText[0] == '\0') formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
-                DrawTextEx(font, playcountText, (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 44 }, 22, 1, BLUE);
 
                 Rectangle imageRect = { activeTracks[i]->size.x, activeTracks[i]->position.y, activeTracks[i]->size.y, activeTracks[i]->size.y };
                 DrawTexturePro(activeTracks[i]->image, 
@@ -516,8 +556,29 @@ int main(void) {
                 );
 
                 // Text annotations
-                DrawTextEx(font, activeTracks[i]->name, (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f }, 22, 1, BLACK);
-                DrawTextEx(font, activeTracks[i]->artist, (Vector2){ activeTracks[i]->size.x + 105.0f, activeTracks[i]->position.y + activeTracks[i]->size.y/13.0f + 22 }, 22, 1, DARKGRAY);
+                float annotationXOffset = activeTracks[i]->size.y * 1.105f;
+                DrawTextEx(normalFont, 
+                    activeTracks[i]->name, 
+                    (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f }, 
+                    normalFontSize, 1, BLACK);
+                DrawTextEx(normalFont, 
+                    activeTracks[i]->artist, 
+                    (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize }, 
+                    normalFontSize, 1, DARKGRAY);
+
+                if (MONEY_MODE) {
+                    // add $ in front of playcountText
+                    char moneyPlaycountText[64];
+                    snprintf(moneyPlaycountText, sizeof(moneyPlaycountText), "$%s", playcountText);
+                    DrawTextEx(normalFont, 
+                        moneyPlaycountText, 
+                        (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
+                        normalFontSize, 1, BLUE);
+                }
+                DrawTextEx(normalFont, 
+                    playcountText, 
+                    (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
+                    normalFontSize, 1, BLUE);
             }
             EndScissorMode();
             
@@ -549,8 +610,8 @@ int main(void) {
 
     // print out the final time and fps and frame
     double totalElapsed = GetTime() - start;
-    fprintf(stderr, "\nTotal elapsed %.3fs | avg FPS %.1f | total frames %d\n",
-            totalElapsed, frames / totalElapsed, frames);
+    fprintf(stderr, "\nTotal frames %d | Total time %.3fs | Total avg FPS %.1f\n",
+            frames, totalElapsed, frames / totalElapsed);
 
     // unload resources
     for (int i = 0; i < counter; i++) {
