@@ -19,13 +19,14 @@
 #define MAX_PLACEMENT 10
 #define MAX_TRACKS 1024
 
-// #define PLOT_TITLE "How The Top Companies By Market Cap Got There Since 2010"
-#define PLOT_TITLE "US Spotify in 2024"
+// #define PLOT_TITLE "How The Top Companies By Market Cap Got There Since 2010 (in USD)"
+// #define PLOT_TITLE "US Spotify in 2024"
+#define PLOT_TITLE "Eric in 2024"
 #define DRAWING 0
 #define MUSIC 0
 #define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h" or "4h"
-#define DAILY 1
-#define BIG_NUMBER_MODE 1
+#define DAILY 0
+#define BIG_NUMBER_MODE 0
 #define MONEY_MODE 0
 #define FPS 60
 
@@ -414,17 +415,18 @@ int main(void) {
             if (MONEY_MODE) {
                 snprintf(totalStreamsText, sizeof(totalStreamsText),
                     BIG_NUMBER_MODE
-                    ? "%s/day"
-                    : "%.2f/day",
+                    ? "$%s"
+                    : "$%.2f",
                     averageStreamsText,
                     averagePlaycount);
-            }  else {
-            snprintf(totalStreamsText, sizeof(totalStreamsText),
-                    BIG_NUMBER_MODE
-                    ? "%s/day \u00B7 %s streams"
-                    : "%.2f/day \u00B7 %d streams",
-                    averageStreamsText, cumulativePlaycountText,
-                    averagePlaycount, (int)cumulativePlaycount);
+            }  else if (BIG_NUMBER_MODE) {
+                snprintf(totalStreamsText, sizeof(totalStreamsText),
+                    "%s/day \u00B7 %s streams", 
+                        averageStreamsText, cumulativePlaycountText);
+            } else {
+                snprintf(totalStreamsText, sizeof(totalStreamsText),
+                        "%.2f/day \u00B7 %s streams",
+                        averagePlaycount, cumulativePlaycountText);
             }
             // DrawText(totalStreamsText, PLOT_WIDTH - 60.0f, PLOT_HEIGHT - 20.0f, 30, DARKGRAY);
 
@@ -506,13 +508,9 @@ int main(void) {
 
                 float songsThresholdDaily;
 
-                // if playcount exceeds 1 billion set threshold to 5 billion
-                if (activeTracks[i]->playcount >= 1e9) {
-                    songsThresholdDaily = 500000000000.0f;
-                } else if (activeTracks[i]->playcount >= 1e8) {
-                    songsThresholdDaily = 100000000000.0f;
-                } else if (activeTracks[i]->playcount >= 1e7) {
-                    songsThresholdDaily = 50000000000.0f;
+                // if we gain 20% of our playcount in a day, we pulse harder
+                if (MONEY_MODE) {
+                    songsThresholdDaily = activeTracks[i]->playcount * 0.25f;
                 } else {
                     songsThresholdDaily = BIG_NUMBER_MODE ? 500000.0f : 8.0f;
                 }
@@ -566,19 +564,21 @@ int main(void) {
                     (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize }, 
                     normalFontSize, 1, DARKGRAY);
 
-                if (MONEY_MODE) {
-                    // add $ in front of playcountText
-                    char moneyPlaycountText[64];
-                    snprintf(moneyPlaycountText, sizeof(moneyPlaycountText), "$%s", playcountText);
+                // if (MONEY_MODE) {
+                //     // add $ in front of playcountText
+                //     char moneyPlaycountText[64];
+                //     snprintf(moneyPlaycountText, sizeof(moneyPlaycountText), "$%s", playcountText);
+                //     DrawTextEx(normalFont, 
+                //         moneyPlaycountText, 
+                //         (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
+                //         normalFontSize, 1, BLUE);
+                // } else {
                     DrawTextEx(normalFont, 
-                        moneyPlaycountText, 
-                        (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
-                        normalFontSize, 1, BLUE);
-                }
-                DrawTextEx(normalFont, 
                     playcountText, 
                     (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
                     normalFontSize, 1, BLUE);
+                // }
+                
             }
             EndScissorMode();
             
