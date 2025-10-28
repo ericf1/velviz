@@ -7,6 +7,7 @@
 #include "ffmpeg.h"
 #include "string.h"
 #include "xaxis.h"
+#include "video_writer.h"
 
 #define WIDTH 1920
 #define HEIGHT 1080
@@ -19,7 +20,7 @@
 #define MAX_TRACKS 1024
 
 #define PLOT_TITLE "Spotify in 2024"
-#define DRAWING 1
+#define DRAWING 0
 #define MUSIC 0
 #define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h"
 #define DAILY 1
@@ -82,13 +83,21 @@ void formatNumber(double num, char *buffer, size_t size) {
 }
 
 int main(void) {
+    // FFMPEG *ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
+    // if (!ffmpeg) return 1;
 
-    if (!DRAWING) SetTraceLogLevel(LOG_NONE); else SetTraceLogLevel(LOG_WARNING);
-    FFMPEG *ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
-    if (!ffmpeg) return 1;
-    if (!DRAWING) SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_UNFOCUSED);
-    if (!DRAWING) SetTargetFPS(0); else SetTargetFPS(FPS);
-    if (DRAWING) SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_UNDECORATED);
+    VideoWriter vw;
+    videoWriterInit(&vw, WIDTH, HEIGHT, FPS);
+
+    if (DRAWING) {
+        SetTargetFPS(FPS);
+        SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_UNDECORATED);
+        SetTraceLogLevel(LOG_WARNING);
+    } else {
+        SetTargetFPS(0);
+        SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_UNFOCUSED);
+        SetTraceLogLevel(LOG_NONE);
+    }
 
     InitWindow(WIDTH, HEIGHT, "Velocity Visualization Renderer");
     Music bgMusic;
@@ -354,17 +363,13 @@ int main(void) {
 
             // write the title bro in the top left corner
             DrawTextEx(bigFont, PLOT_TITLE, (Vector2){ X_OFFSET, Y_OFFSET }, 48, 1, BLACK);
-            // DrawText("Built by Eric Fang", WIDTH - 150, HEIGHT - 30, 12, DARKGRAY);
             DrawTextEx(smallFont, "Built by Eric Fang", (Vector2){ WIDTH - 125, HEIGHT - 30 }, 16, 1, DARKGRAY);
 
             // draw a box around the plot
             Rectangle scissorArea = { X_OFFSET, 1.0f / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET, \
-                                            WIDTH - 2*X_OFFSET, PLOT_HEIGHT };
-            // draw "background" for the plot                                
+                                            WIDTH - 2*X_OFFSET, PLOT_HEIGHT };                         
             DrawRectangle(scissorArea.x - 1.0f, scissorArea.y - 1.0f, scissorArea.width + 2.0f, scissorArea.height + 2.0f, bgColor);
             DrawRectangleLines(scissorArea.x - 1.0f, scissorArea.y - 1.0f, scissorArea.width + 2.0f, scissorArea.height + 2.0f, BLACK);
-            
-            
 
             // draw line for every rectangle
             for (int i = 2; i <= MAX_PLACEMENT; i++) {
@@ -374,7 +379,7 @@ int main(void) {
 
             // PLOT LEVEL CHANGES
             ClearBackground(RAYWHITE);
-
+            
             const char* timeFmt = DAILY
                 ? "%.10s"
                 : "%.10s to %.10s";
@@ -530,19 +535,22 @@ int main(void) {
             EndDrawing();
         }
         Image image = LoadImageFromTexture(screen.texture);
-        ffmpeg_send_frame_flipped(ffmpeg, image.data, WIDTH, HEIGHT);
-        UnloadImage(image);
+        videoWriterPushFrame(&vw, &image);
 
-        frames++;
         if (frames % 144 == 0 && frames > 144) {
             double elapsed = GetTime() - start;
             fprintf(stderr, "Frame %d | elapsed %.3fs | avg FPS %.1f\r",
                     frames, elapsed, frames / elapsed);
             fflush(stderr);
         }
-
+        frames++;
         currentAnimationTime += FIXED_DELTA_TIME;
     }
+
+    // print out the final time and fps and frame
+    double totalElapsed = GetTime() - start;
+    fprintf(stderr, "\nTotal elapsed %.3fs | avg FPS %.1f | total frames %d\n",
+            totalElapsed, frames / totalElapsed, frames);
 
     // unload resources
     for (int i = 0; i < counter; i++) {
@@ -558,6 +566,7 @@ int main(void) {
     csv_close(&reader);
     UnloadRenderTexture(screen);
     CloseWindow();
-    ffmpeg_end_rendering(ffmpeg);
+    // ffmpeg_end_rendering(ffmpeg);
+    videoWriterStop(&vw);
     return 0;
 }

@@ -25,7 +25,10 @@
 		"xmemory": "c",
 		"xstring": "c",
 		"xutility": "c",
-		"cstdlib": "c"
+		"cstdlib": "c",
+		"video_writer.h": "c",
+		"raylib.h": "c",
+		"helper.h": "c"
 	},
 	"editor.formatOnSave": false
 }
