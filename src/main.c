@@ -60,9 +60,11 @@ typedef struct Track {
     // version pointer
     int versionCount;
     AlbumVersion* versions[MAX_ALBUM_VERSIONS];
+    // counters for prizes
+    int maxPlaycountAchieved;
+    int totalPlaycountAchieved;
+    int daysActive;
 } Track;
-
-
 
 Color parse_color(const char *str) {
     Color color = {0};
@@ -313,6 +315,7 @@ int main(void) {
     if (frames == 144) start = GetTime();
 
         // disable all tracks
+        
         for (int i = 0; i < counter; i++) {
             tracks[i].active = 0;
         }
@@ -363,7 +366,7 @@ int main(void) {
             if (ARTIST_MODE) snprintf(tracks[index].name, sizeof(tracks[index].name), "%s", current_fields[2]);
 
             // if album mode, update the track based on the album version data
-           if (ALBUM_MODE) {
+            if (ALBUM_MODE) {
                 int versionCount = tracks[index].versionCount;
                 bool picked = false;
                 for (int v = versionCount - 1; v >= 0; v--) {
@@ -406,6 +409,14 @@ int main(void) {
             float playcountDiffDaily = (float)strtod(current_fields[6], NULL) * framesPerDay;
             tracks[index].playcountDiffDaily = playcountDiffDaily;
 
+            // update award counters
+            tracks[index].totalPlaycountAchieved += (int)playcount / 7;
+            if (tracks[index].maxPlaycountAchieved < (int)playcount) {
+                tracks[index].maxPlaycountAchieved = (int)playcount;
+            }
+            tracks[index].daysActive += 1;
+
+            // this is the plot level stuff
             cumulativePlaycount = (float)strtod(current_fields[9], NULL);
             averagePlaycount = (float)strtod(current_fields[10], NULL);
             max_playcount = (float)strtod(current_fields[7], NULL);
