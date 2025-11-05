@@ -18,21 +18,30 @@
 
 #define MAX_PLACEMENT 10
 #define MAX_TRACKS 1024
+#define MAX_ALBUM_VERSIONS 256
 
 // #define PLOT_TITLE "How The Top Companies By Market Cap Got There Since 2010 (in USD)"
 // #define PLOT_TITLE "US Spotify in 2024"
-#define PLOT_TITLE "Eric's Artists in 2024"
-#define DRAWING 1
-#define MUSIC 0
+#define PLOT_TITLE "Wilson's Albums in 2024"
+#define DRAWING 0
+#define MUSIC 0 // theres a bug with music jk
 #define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h" or "4h"
+#define ARTIST_MODE 0
+#define ALBUM_MODE 1
 #define DAILY 0
 #define BIG_NUMBER_MODE 0
 #define MONEY_MODE 0
-#define ARTIST_MODE 1
 #define FPS 60
 
-#define DATA_PATH "\\\\ERIC\\Users\\human\\git\\velviz\\data\\"
-#define OUTPUT_PATH "C:\\Users\\Eric\\Documents\\GitHub\\velviz\\output\\"
+#define DATA_PATH "C:\\Users\\human\\git\\velviz\\data\\"
+#define OUTPUT_PATH "C:\\Users\\human\\git\\velviz\\output\\"
+
+typedef struct AlbumVersion {
+    char albumName[128];
+    int frameStart;
+    Texture2D image;
+    Color baseColor;
+} AlbumVersion;
 
 typedef struct Track {
     Vector2 position;
@@ -48,7 +57,12 @@ typedef struct Track {
     bool active;
     Texture2D image;
     int previousIndex;
+    // version pointer
+    int versionCount;
+    AlbumVersion* versions[MAX_ALBUM_VERSIONS];
 } Track;
+
+
 
 Color parse_color(const char *str) {
     Color color = {0};
@@ -142,7 +156,7 @@ int main(void) {
     Music bgMusic;
     if (MUSIC) {
         InitAudioDevice();
-        bgMusic = LoadMusicStream(DATA_PATH "temp_velviz_audio.mp3");
+        bgMusic = LoadMusicStream(DATA_PATH "temp_velviz_audio.wav");
         PlayMusicStream(bgMusic);
         SetMusicVolume(bgMusic, 0.5f);
     }
@@ -152,14 +166,9 @@ int main(void) {
     Axis xaxis;
     initAxis(&xaxis);
 
-    CSVReader reader;
-    char fields[CSV_MAX_FIELDS][CSV_MAX_FIELD_LEN];
-    int field_count;
-
-    // instantiate every track
-    csv_open(&reader, DATA_PATH "unique_songs_df.csv");
-
-    Track* tracks = (Track*)RL_CALLOC(MAX_TRACKS, sizeof(Track)); 
+    
+    Track* tracks = (Track*)RL_CALLOC(MAX_TRACKS, sizeof(Track));
+    AlbumVersion* albumVersions = (AlbumVersion*)RL_CALLOC(MAX_TRACKS, sizeof(AlbumVersion));
 
     int counter = 0;
     char path_buffer[512];
@@ -174,12 +183,17 @@ int main(void) {
         ptr += chars_written;
         remaining -= chars_written;
     }
-    
+
+    CSVReader reader;
+    char fields[CSV_MAX_FIELDS][CSV_MAX_FIELD_LEN];
+    int field_count;
+
+    csv_open(&reader, DATA_PATH "unique_songs_df.csv");
     while(csv_read_row(&reader, fields, &field_count)) {
-        unsigned char r = (unsigned char)strtol(fields[3], NULL, 10);
-        unsigned char g = (unsigned char)strtol(fields[4], NULL, 10);
-        unsigned char b = (unsigned char)strtol(fields[5], NULL, 10);
-        unsigned char a = (unsigned char)strtol(fields[6], NULL, 10);
+        unsigned char r = (unsigned char)strtol(fields[2], NULL, 10);
+        unsigned char g = (unsigned char)strtol(fields[3], NULL, 10);
+        unsigned char b = (unsigned char)strtol(fields[4], NULL, 10);
+        unsigned char a = (unsigned char)strtol(fields[5], NULL, 10);
 
         tracks[counter].position = (Vector2){ X_OFFSET, HEIGHT };
         tracks[counter].size = (Vector2){ PLOT_WIDTH * ((counter % (MAX_PLACEMENT + 1)) / (float)(MAX_PLACEMENT + 1)), 
@@ -189,19 +203,22 @@ int main(void) {
         tracks[counter].active = 0;
         tracks[counter].currentAlpha = 1.0f;
         tracks[counter].previousIndex = -1;
+        tracks[counter].versionCount = 0;
 
         if (remaining > 0) {
-            chars_written = snprintf(ptr, remaining, "%s %s\n", fields[7], fields[8]);
+            chars_written = snprintf(ptr, remaining, "%s %s\n", fields[6], fields[7]);
             if (chars_written > 0) {
                 ptr += chars_written;
                 remaining -= chars_written;
             }
         }
 
-        snprintf(tracks[counter].name, sizeof(tracks[counter].name), "%s", fields[7]);
-        snprintf(tracks[counter].artist, sizeof(tracks[counter].artist), "%s", fields[8]);
+        snprintf(tracks[counter].name, sizeof(tracks[counter].name), "%s", fields[6]);
+        snprintf(tracks[counter].artist, sizeof(tracks[counter].artist), "%s", fields[7]);
 
-        snprintf(path_buffer, sizeof(path_buffer), DATA_PATH "export_images\\%d.png", counter);
+        // printf("Loaded track %d: %s by %s\n", counter, tracks[counter].name, tracks[counter].artist);
+
+        snprintf(path_buffer, sizeof(path_buffer), DATA_PATH "export_images\\%d.jpg", counter);
 
         tracks[counter].image = LoadTexture(path_buffer);
 
@@ -211,8 +228,43 @@ int main(void) {
     }
     csv_close(&reader);
 
+    if (ALBUM_MODE) {
+        // load versions
+        csv_open(&reader, DATA_PATH "album_versioning.csv");
+        int version_counter = 0;
+
+        while(csv_read_row(&reader, fields, &field_count)) {
+            if (version_counter >= MAX_ALBUM_VERSIONS) {
+                // or MAX_ALBUM_VERSIONS_TOTAL if you define one
+                TraceLog(LOG_WARNING, "Too many album versions in CSV, skipping");
+                break;
+            }
+            // load in the album version data
+            char* albumName = fields[1];
+            int trackIndex = (int)strtol(fields[6], NULL, 10);
+            int frameStart = (int)strtol(fields[7], NULL, 10);
+            char* baseColorText = fields[8];
+            Color baseColor = parse_color(baseColorText);
+            
+            albumVersions[version_counter].frameStart = frameStart;
+            snprintf(albumVersions[version_counter].albumName, sizeof(albumVersions[version_counter].albumName), "%s", albumName);
+            
+            char fullImagePath[256];
+            snprintf(fullImagePath, sizeof(fullImagePath), DATA_PATH "export_version_images\\%d.jpg", version_counter);
+            albumVersions[version_counter].image = LoadTexture(fullImagePath);
+
+            albumVersions[version_counter].baseColor = baseColor;
+
+            Track *t = &tracks[trackIndex];
+            t->versions[t->versionCount] = &albumVersions[version_counter];
+            t->versionCount++;
+            version_counter++;
+        }
+        csv_close(&reader);
+    }
+
     int codepointCount = 0;
-    if (ARTIST_MODE) {
+    if (ARTIST_MODE || ALBUM_MODE) {
         size_t size;
         char *glyphs = read_file_to_char_array(DATA_PATH "unique_title_chars.txt", NULL);
 
@@ -222,7 +274,6 @@ int main(void) {
             free(glyphs);
         }
     }
-    printf("All text for codepoints: %s\n", all_text);
    
     int *codepoints = LoadCodepoints(all_text, &codepointCount);
     int normalFontSize = 24;
@@ -310,6 +361,33 @@ int main(void) {
 
             // update the name of the track from current_fields[2]
             if (ARTIST_MODE) snprintf(tracks[index].name, sizeof(tracks[index].name), "%s", current_fields[2]);
+
+            // if album mode, update the track based on the album version data
+           if (ALBUM_MODE) {
+                int versionCount = tracks[index].versionCount;
+                bool picked = false;
+                for (int v = versionCount - 1; v >= 0; v--) {
+                    AlbumVersion *version = tracks[index].versions[v];
+                    if (version->frameStart <= frames) {
+                        tracks[index].image = version->image;
+                        strncpy(tracks[index].name, version->albumName, sizeof(tracks[index].name) - 1);
+                        tracks[index].name[sizeof(tracks[index].name) - 1] = '\0';
+                        tracks[index].baseColor = version->baseColor;
+                        // tracks[index].barColor = version->baseColor;
+                        picked = true;
+                        break;
+                    }
+                }
+                if (versionCount > 0 && !picked) {
+                    // if we have versions but none of them are active yet, use the first one
+                    AlbumVersion *version = tracks[index].versions[0];
+                    tracks[index].image = version->image;
+                    strncpy(tracks[index].name, version->albumName, sizeof(tracks[index].name) - 1);
+                    tracks[index].name[sizeof(tracks[index].name) - 1] = '\0';
+                    tracks[index].baseColor = version->baseColor;
+                    // tracks[index].barColor = version->baseColor;
+                }
+            }
 
             float playcount = (float)strtod(current_fields[5], NULL);
             tracks[index].size.x = playcount / max_playcount * PLOT_WIDTH;
