@@ -8,6 +8,7 @@
 #include "string.h"
 #include "xaxis.h"
 #include "video_writer.h"
+#include "helper.h"
 
 #define WIDTH 1920
 #define HEIGHT 1080
@@ -22,9 +23,9 @@
 
 // #define PLOT_TITLE "How The Top Companies By Market Cap Got There Since 2010 (in USD)"
 // #define PLOT_TITLE "US Spotify in 2024"
-#define PLOT_TITLE "Wilson's Albums in 2024"
-#define DRAWING 0
-#define MUSIC 0 // theres a bug with music jk
+#define PLOT_TITLE "Jacob's Albums in 2024"
+#define DRAWING 1
+#define MUSIC 1 // theres a bug with music jk
 #define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h" or "4h"
 #define ARTIST_MODE 0
 #define ALBUM_MODE 1
@@ -60,82 +61,7 @@ typedef struct Track {
     // version pointer
     int versionCount;
     AlbumVersion* versions[MAX_ALBUM_VERSIONS];
-    // counters for prizes
-    int maxPlaycountAchieved;
-    int totalPlaycountAchieved;
-    int daysActive;
 } Track;
-
-Color parse_color(const char *str) {
-    Color color = {0};
-    float r, g, b, a;
-    
-    // Parse the string "(r, g, b, a)"
-    if (sscanf(str, "(%f, %f, %f, %f)", &r, &g, &b, &a) == 4) {
-        color.r = (int)(r * 255.0f);
-        color.g = (int)(g * 255.0f);
-        color.b = (int)(b * 255.0f);
-        color.a = (int)(a * 255.0f);
-    }
-    
-    return color;
-}
-
-char *read_file_to_char_array(const char *filename, size_t *out_size) {
-    FILE *file = fopen(filename, "rb");  // "rb" = read binary
-    if (!file) {
-        perror("Failed to open file");
-        return NULL;
-    }
-
-    // Get file size
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    rewind(file);
-
-    // Allocate buffer (+1 for null terminator)
-    char *buffer = malloc(file_size + 1);
-    if (!buffer) {
-        fclose(file);
-        perror("Failed to allocate buffer");
-        return NULL;
-    }
-
-    // Read contents
-    size_t read_size = fread(buffer, 1, file_size, file);
-    buffer[read_size] = '\0';  // null terminate (useful if it's text)
-
-    fclose(file);
-
-    if (out_size)
-        *out_size = read_size;
-
-    return buffer;
-}
-
-void formatNumber(double num, char *buffer, size_t size) {
-    if (num >= 1e12) {
-        snprintf(buffer, size, "%.2fT", num / 1e12);
-    } else if (num >= 1e9) {
-        snprintf(buffer, size, "%.2fB", num / 1e9);
-    } else if (num >= 1e6) {
-        snprintf(buffer, size, "%.2fM", num / 1e6);
-    } else if (num >= 1e3) {
-        snprintf(buffer, size, "%.2fK", num / 1e3);
-    } else {
-        snprintf(buffer, size, "%d", (int)num);
-    }
-
-    for (int i = 0; buffer[i] != '\0'; i++) {
-        if (buffer[i] == '.') {
-            char *end = buffer + i;
-            while (*end != '\0') end++;
-            while (end > buffer + i && (*(end - 1) == '0' || *(end - 1) == '.'))
-                *(--end) = '\0';
-            break;
-        }
-    }
-}
 
 int main(void) {
     // FFMPEG *ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
@@ -408,13 +334,6 @@ int main(void) {
             }
             float playcountDiffDaily = (float)strtod(current_fields[6], NULL) * framesPerDay;
             tracks[index].playcountDiffDaily = playcountDiffDaily;
-
-            // update award counters
-            tracks[index].totalPlaycountAchieved += (int)playcount / 7;
-            if (tracks[index].maxPlaycountAchieved < (int)playcount) {
-                tracks[index].maxPlaycountAchieved = (int)playcount;
-            }
-            tracks[index].daysActive += 1;
 
             // this is the plot level stuff
             cumulativePlaycount = (float)strtod(current_fields[9], NULL);

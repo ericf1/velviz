@@ -2,7 +2,7 @@
 #define VIDEO_WRITER_H
 
 #include "ffmpeg.h"
-#include "helper.h"
+#include "frame_queue.h"
 
 // Represents one active recording session.
 typedef struct VideoWriter {

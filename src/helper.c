@@ -1,100 +1,72 @@
-
 #include "helper.h"
 
-FrameSlot frameQueue[MAX_QUEUE];
-CRITICAL_SECTION queueLock;
-CONDITION_VARIABLE queueNotEmpty;
-CONDITION_VARIABLE queueNotFull;
-int head = 0;
-int tail = 0;
-int count = 0;
-bool queueRunning = false;
-
-void initFrameQueue() {
-    InitializeCriticalSection(&queueLock);
-    InitializeConditionVariable(&queueNotEmpty);
-    InitializeConditionVariable(&queueNotFull);
-
-    head = 0;
-    tail = 0;
-    count = 0;
-    queueRunning = true;
-
-    for (int i = 0; i < MAX_QUEUE; ++i) {
-        frameQueue[i].valid = false;
+Color parse_color(const char *str) {
+    Color color = {0};
+    float r, g, b, a;
+    
+    // Parse the string "(r, g, b, a)"
+    if (sscanf(str, "(%f, %f, %f, %f)", &r, &g, &b, &a) == 4) {
+        color.r = (int)(r * 255.0f);
+        color.g = (int)(g * 255.0f);
+        color.b = (int)(b * 255.0f);
+        color.a = (int)(a * 255.0f);
     }
+    
+    return color;
 }
 
-void stopFrameQueue() {
-    EnterCriticalSection(&queueLock);
-    queueRunning = false;
-    WakeConditionVariable(&queueNotEmpty);
-    WakeConditionVariable(&queueNotFull);
-    LeaveCriticalSection(&queueLock);
+char *read_file_to_char_array(const char *filename, size_t *out_size) {
+    FILE *file = fopen(filename, "rb");  // "rb" = read binary
+    if (!file) {
+        perror("Failed to open file");
+        return NULL;
+    }
+
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    rewind(file);
+
+    // Allocate buffer (+1 for null terminator)
+    char *buffer = malloc(file_size + 1);
+    if (!buffer) {
+        fclose(file);
+        perror("Failed to allocate buffer");
+        return NULL;
+    }
+
+    // Read contents
+    size_t read_size = fread(buffer, 1, file_size, file);
+    buffer[read_size] = '\0';  // null terminate (useful if it's text)
+
+    fclose(file);
+
+    if (out_size)
+        *out_size = read_size;
+
+    return buffer;
 }
 
-void destroyFrameQueue() {
-    // free any frames still in the queue
-    for (int i = 0; i < MAX_QUEUE; ++i) {
-        if (frameQueue[i].valid) {
-            UnloadImage(frameQueue[i].frame);
-            frameQueue[i].valid = false;
+void formatNumber(double num, char *buffer, size_t size) {
+    if (num >= 1e12) {
+        snprintf(buffer, size, "%.2fT", num / 1e12);
+    } else if (num >= 1e9) {
+        snprintf(buffer, size, "%.2fB", num / 1e9);
+    } else if (num >= 1e6) {
+        snprintf(buffer, size, "%.2fM", num / 1e6);
+    } else if (num >= 1e3) {
+        snprintf(buffer, size, "%.2fK", num / 1e3);
+    } else {
+        snprintf(buffer, size, "%d", (int)num);
+    }
+
+    for (int i = 0; buffer[i] != '\0'; i++) {
+        if (buffer[i] == '.') {
+            char *end = buffer + i;
+            while (*end != '\0') end++;
+            while (end > buffer + i && (*(end - 1) == '0' || *(end - 1) == '.'))
+                *(--end) = '\0';
+            break;
         }
     }
-    DeleteCriticalSection(&queueLock);
-}
-
-void enqueueFrame(const Image *frameIn) {
-    EnterCriticalSection(&queueLock);
-
-    // Wait WHILE the queue is full, as long as the queue is running
-    while (count == MAX_QUEUE && queueRunning) {
-        // This will "unlock" the lock and put this thread to sleep.
-        // It will re-acquire the lock when it wakes up.
-        SleepConditionVariableCS(&queueNotFull, &queueLock, INFINITE);
-    }
-
-    // After waking up, check if we're stopping
-    if (!queueRunning) {
-        LeaveCriticalSection(&queueLock);
-        return; // shutting down, ignore
-    }
-
-    // --- We REMOVED the old "if (count == MAX_QUEUE)" block ---
-    // At this point, we are 100% sure the queue is not full.
-
-    // Move (take ownership of) the Image instead of copying pixel data.
-    frameQueue[tail].frame = *frameIn; // shallow struct copy (pointer + metadata)
-    frameQueue[tail].valid = true;
-
-    tail = (tail + 1) % MAX_QUEUE;
-    count++;
-
-    // Signal the *consumer* thread (in dequeueFrame) that a frame is ready
-    WakeConditionVariable(&queueNotEmpty);
-    LeaveCriticalSection(&queueLock);
-}
-
-bool dequeueFrame(Image* outFrame) {
-    EnterCriticalSection(&queueLock);
-
-    while (count == 0 && queueRunning) {
-        SleepConditionVariableCS(&queueNotEmpty, &queueLock, INFINITE);
-    }
-
-    if (count == 0 && !queueRunning) {
-        LeaveCriticalSection(&queueLock);
-        return false; // no more work, time to exit thread
-    }
-
-    *outFrame = frameQueue[head].frame; // transfer ownership
-    frameQueue[head].valid = false;
-
-    head = (head + 1) % MAX_QUEUE;
-    count--;
-
-    WakeConditionVariable(&queueNotFull);
-    LeaveCriticalSection(&queueLock);
-
-    return true;
 }

@@ -28,7 +28,8 @@
 		"cstdlib": "c",
 		"video_writer.h": "c",
 		"raylib.h": "c",
-		"helper.h": "c"
+		"helper.h": "c",
+		"frame_queue.h": "c"
 	},
 	"editor.formatOnSave": false
 }
