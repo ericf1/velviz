@@ -23,12 +23,14 @@
 
 // #define PLOT_TITLE "How The Top Companies By Market Cap Got There Since 2010 (in USD)"
 // #define PLOT_TITLE "US Spotify in 2024"
-#define PLOT_TITLE "Jacob's Albums in 2024"
+#define PLOT_TITLE "Eric in 2024"
 #define DRAWING 1
 #define MUSIC 1 // theres a bug with music jk
 #define MASTER_TIME_DELTA "0.6h" // "0.6h" or "2h" or "4h"
-#define ARTIST_MODE 0
-#define ALBUM_MODE 1
+#define AWARDS_ON 1
+#define MAX_AWARDS 3
+#define ARTIST_MODE 1
+#define ALBUM_MODE 0
 #define DAILY 0
 #define BIG_NUMBER_MODE 0
 #define MONEY_MODE 0
@@ -63,6 +65,20 @@ typedef struct Track {
     AlbumVersion* versions[MAX_ALBUM_VERSIONS];
 } Track;
 
+typedef struct Award {
+    char category[128];
+    char text[256];
+    char stat[64];
+    Color bgColor;
+    Texture2D image;
+} Award;
+
+typedef enum {
+    STATE_CSV,
+    STATE_AWARDS,
+    STATE_EXIT,
+} AnimationState;
+
 int main(void) {
     // FFMPEG *ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
     // if (!ffmpeg) return 1;
@@ -94,7 +110,7 @@ int main(void) {
     Axis xaxis;
     initAxis(&xaxis);
 
-    
+    // init tracks
     Track* tracks = (Track*)RL_CALLOC(MAX_TRACKS, sizeof(Track));
     AlbumVersion* albumVersions = (AlbumVersion*)RL_CALLOC(MAX_TRACKS, sizeof(AlbumVersion));
 
@@ -202,6 +218,9 @@ int main(void) {
             free(glyphs);
         }
     }
+
+    // in alltexts also add the "-"
+    strncat(all_text, "-\n", ALL_TEXT_SIZE - strlen(all_text) - 1);
    
     int *codepoints = LoadCodepoints(all_text, &codepointCount);
     int normalFontSize = 24;
@@ -220,6 +239,33 @@ int main(void) {
     int mediumFontSize = 34;
     Font mediumFont = LoadFontEx("resources/NotoSansJP-SemiBold.ttf", mediumFontSize, medCodepoints, 96);
 
+
+    // init awards
+    Award awards[MAX_AWARDS];
+    // get the data from awards_export.csv
+    csv_open(&reader, DATA_PATH "awards_export.csv");
+    int award_counter = 0;
+    while(csv_read_row(&reader, fields, &field_count)) {
+        if (award_counter >= MAX_AWARDS) {
+            TraceLog(LOG_WARNING, "Too many awards in CSV, skipping");
+            break;
+        }
+        snprintf(awards[award_counter].category, sizeof(awards[award_counter].category), "%s", fields[0]);
+        snprintf(awards[award_counter].text, sizeof(awards[award_counter].text), "%s", fields[1]);
+        snprintf(awards[award_counter].stat, sizeof(awards[award_counter].stat), "%s", fields[2]);
+
+        char* bgColorText = fields[3];
+        awards[award_counter].bgColor = parse_color(bgColorText);
+
+        char awardImagePath[256];
+        int imageIndex = (int)strtol(fields[4], NULL, 10);
+        snprintf(awardImagePath, sizeof(awardImagePath), DATA_PATH "export_images\\%d.jpg", imageIndex);
+        awards[award_counter].image = LoadTexture(awardImagePath);
+
+        award_counter++;
+    }
+    csv_close(&reader);
+
     // now on to the frames
     csv_open(&reader, DATA_PATH "entire_df.csv");
      
@@ -233,15 +279,16 @@ int main(void) {
     bool running = true;
 
     int frames = 0;
+    int frames_by_csv = 0;
     const float FIXED_DELTA_TIME = 1.0f / FPS; 
     float currentAnimationTime = 0.0f;
     static double start;
+    int currentAwardIndex = 0;
 
-    while (running && !WindowShouldClose()) {
-    if (frames == 144) start = GetTime();
-
+    AnimationState state = STATE_CSV;
+    while (state != STATE_EXIT && !WindowShouldClose()) {
+        if (frames == 144) start = GetTime();
         // disable all tracks
-        
         for (int i = 0; i < counter; i++) {
             tracks[i].active = 0;
         }
@@ -251,7 +298,7 @@ int main(void) {
         int havePrev = 0;
         float averagePlaycount = 0.0f;
         float cumulativePlaycount = 0.0f;
-        while(1) {
+        while(state == STATE_CSV) {
             size_t current_field_count;
             char (*current_fields)[CSV_MAX_FIELD_LEN];
             
@@ -262,7 +309,13 @@ int main(void) {
                 have_buffered = 0;
             } else {
                 if (!csv_read_row(&reader, fields, &field_count)) {
-                    running = false;
+                    if (AWARDS_ON) {
+                        state = STATE_AWARDS;
+                        currentAwardIndex = 0;
+                    } else {
+                        state = STATE_EXIT;
+                    }
+                    frames_by_csv = frames;
                     break;
                 }
                 current_fields = fields;
@@ -433,7 +486,6 @@ int main(void) {
         if (MUSIC) UpdateMusicStream(bgMusic);
         if (DRAWING) BeginDrawing();
         BeginTextureMode(screen);
-
             // write the title bro in the top left corner
             DrawTextEx(bigFont, PLOT_TITLE, (Vector2){ X_OFFSET, Y_OFFSET }, 48, 1, BLACK);
             DrawTextEx(tinyFont, "Built by Eric Fang", (Vector2){ WIDTH - 125, HEIGHT - 30 }, 16, 1, DARKGRAY);
@@ -486,11 +538,12 @@ int main(void) {
             // DrawText(totalStreamsText, PLOT_WIDTH - 60.0f, PLOT_HEIGHT - 20.0f, 30, DARKGRAY);
 
             char combinedText[256];
-            snprintf(combinedText, sizeof(combinedText), "%s  |  %s", timeText, totalStreamsText);
+            if (state == STATE_CSV) {
+                snprintf(combinedText, sizeof(combinedText), "%s  |  %s", timeText, totalStreamsText);
+            }
             float xOffset = MeasureTextEx(mediumFont, combinedText, mediumFontSize, 1).x;
-            // float yOffset = MeasureTextEx(mediumFont, PLOT_TITLE, 48, 1).y;
-            DrawTextEx(mediumFont, combinedText, (Vector2){ WIDTH - xOffset - X_OFFSET, Y_OFFSET + 12.0f }, mediumFontSize, 1, BLACK);
 
+            DrawTextEx(mediumFont, combinedText, (Vector2){ WIDTH - xOffset - X_OFFSET, Y_OFFSET + 12.0f }, mediumFontSize, 1, BLACK);
             DrawLine(X_OFFSET, 
                 (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT - Y_OFFSET + 1.0f, 
                 WIDTH - X_OFFSET, 
@@ -505,15 +558,7 @@ int main(void) {
 
                 char tickLabel[32];
                 formatNumber(xaxis.tickValues[i], tickLabel, sizeof(tickLabel));
-                // const char *textToDraw = TextFormat("%s", tickLabel);
                 int centeredXPos = xPos - (MeasureText(tickLabel, 18) / 2);
-                // DrawText(
-                //     tickLabel,
-                //     centeredXPos,
-                //     (MAX_PLACEMENT + 1.0f) / MAX_PLACEMENT * PLOT_HEIGHT + 6 - Y_OFFSET,
-                //     18,
-                //     BLACK
-                // );
                 DrawTextEx(
                     smallFont,
                     tickLabel,
@@ -525,135 +570,212 @@ int main(void) {
             }
 
             // overlapping logic
-            for (int i = 0; i < activeTrackCount; i++) {
-                activeTracks[i]->currentAlpha = 1.0f;
-            }
+            if (state == STATE_CSV) {
+                for (int i = 0; i < activeTrackCount; i++) {
+                    activeTracks[i]->currentAlpha = 1.0f;
+                }
 
-            for (int i = 0; i < activeTrackCount; i++) {
-                Rectangle currentRect = { activeTracks[i]->position.x, 
-                        activeTracks[i]->position.y + 0.1f / MAX_PLACEMENT * PLOT_HEIGHT, 
-                        activeTracks[i]->size.x + activeTracks[i]->size.y - 50.0f, 
-                        activeTracks[i]->size.y - 0.1f / MAX_PLACEMENT * PLOT_HEIGHT  };
-                for (int j = 0; j < activeTrackCount; j++) {
-                    if (i == j || !activeTracks[j]->active) continue;
-                    Rectangle otherRect = { activeTracks[j]->position.x, 
-                        activeTracks[j]->position.y + 0.1f / MAX_PLACEMENT * PLOT_HEIGHT, 
-                        activeTracks[j]->size.x + activeTracks[j]->size.y - 50.0f, 
-                        activeTracks[j]->size.y - 0.2f / MAX_PLACEMENT * PLOT_HEIGHT  };
+                for (int i = 0; i < activeTrackCount; i++) {
+                    Rectangle currentRect = { activeTracks[i]->position.x, 
+                            activeTracks[i]->position.y + 0.1f / MAX_PLACEMENT * PLOT_HEIGHT, 
+                            activeTracks[i]->size.x + activeTracks[i]->size.y - 50.0f, 
+                            activeTracks[i]->size.y - 0.1f / MAX_PLACEMENT * PLOT_HEIGHT  };
+                    for (int j = 0; j < activeTrackCount; j++) {
+                        if (i == j || !activeTracks[j]->active) continue;
+                        Rectangle otherRect = { activeTracks[j]->position.x, 
+                            activeTracks[j]->position.y + 0.1f / MAX_PLACEMENT * PLOT_HEIGHT, 
+                            activeTracks[j]->size.x + activeTracks[j]->size.y - 50.0f, 
+                            activeTracks[j]->size.y - 0.2f / MAX_PLACEMENT * PLOT_HEIGHT  };
 
-                    // draw rectangles for debug
-                    // DrawRectangleLinesEx(currentRect, 2.0f, RED);
-                    // DrawRectangleLinesEx(otherRect, 2.0f, BLACK);
+                        // draw rectangles for debug
+                        // DrawRectangleLinesEx(currentRect, 2.0f, RED);
+                        // DrawRectangleLinesEx(otherRect, 2.0f, BLACK);
 
-                    if (CheckCollisionRecs(currentRect, otherRect)) {
-                        // apply alpha to the rectangle with higher playcount
-                        if (activeTracks[i]->playcount > activeTracks[j]->playcount)
-                            activeTracks[i]->currentAlpha = 0.95f;
-                        else
-                            activeTracks[j]->currentAlpha = 0.95f;
+                        if (CheckCollisionRecs(currentRect, otherRect)) {
+                            // apply alpha to the rectangle with higher playcount
+                            if (activeTracks[i]->playcount > activeTracks[j]->playcount)
+                                activeTracks[i]->currentAlpha = 0.95f;
+                            else
+                                activeTracks[j]->currentAlpha = 0.95f;
+                        }
                     }
                 }
             }
             // begin scissor mode
             BeginScissorMode(scissorArea.x, scissorArea.y, scissorArea.width, scissorArea.height);
-            for (int i = 0; i < activeTrackCount; i++) {
-                // SONG LEVEL CHANGES
-                char playcountText[32];
-                playcountText[0] = '\0';
 
-                float songsThresholdDaily;
+            if (state == STATE_CSV) {
+                for (int i = 0; i < activeTrackCount; i++) {
+                    // SONG LEVEL CHANGES
+                    char playcountText[32];
+                    playcountText[0] = '\0';
 
-                // if we gain 20% of our playcount in a day, we pulse harder
-                if (MONEY_MODE) {
-                    songsThresholdDaily = activeTracks[i]->playcount * 0.25f;
-                } else {
-                    songsThresholdDaily = BIG_NUMBER_MODE ? 500000.0f : 8.0f;
+                    float songsThresholdDaily;
+
+                    // if we gain 20% of our playcount in a day, we pulse harder
+                    if (MONEY_MODE) {
+                        songsThresholdDaily = activeTracks[i]->playcount * 0.25f;
+                    } else {
+                        songsThresholdDaily = BIG_NUMBER_MODE ? 500000.0f : 8.0f;
+                    }
+
+                    if (activeTracks[i]->playcountDiffDaily >= songsThresholdDaily) {
+                        Vector3 baseHSV = ColorToHSV(activeTracks[i]->baseColor);
+                        float pulse = 0.9f + 0.1f * sinf(currentAnimationTime * 10.0f);
+                        float vPulsed = baseHSV.z * pulse;
+                        activeTracks[i]->barColor = ColorFromHSV(baseHSV.x, baseHSV.y, vPulsed);
+
+                        formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
+                        strcat(playcountText, "↑↑");
+                    }
+                    else if (abs(activeTracks[i]->barColor.r - activeTracks[i]->baseColor.r) > 10 ||
+                            abs(activeTracks[i]->barColor.g - activeTracks[i]->baseColor.g) > 10 ||
+                            abs(activeTracks[i]->barColor.b - activeTracks[i]->baseColor.b) > 10) {
+
+                        Vector3 baseHSV = ColorToHSV(activeTracks[i]->baseColor);
+                        float pulse = 0.9f + 0.1f * sinf(currentAnimationTime * 10.0f);
+                        float vPulsed = baseHSV.z * pulse;
+                        activeTracks[i]->barColor = ColorFromHSV(baseHSV.x, baseHSV.y, vPulsed);
+
+                        formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
+                        strcat(playcountText, "↑");
+                    } else {
+                        activeTracks[i]->barColor = activeTracks[i]->baseColor;
+                    }
+                    if (playcountText[0] == '\0') formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
+
+                    Color finalColor = Fade(activeTracks[i]->barColor, activeTracks[i]->currentAlpha);
+                    Rectangle barRect = { activeTracks[i]->position.x, activeTracks[i]->position.y, activeTracks[i]->size.x, activeTracks[i]->size.y };
+                    DrawRectangleRec(barRect, finalColor);
+
+                    Texture2D img = activeTracks[i]->image;
+                    int cropSize = (img.width < img.height) ? img.width : img.height;
+                    int offsetX = (img.width  - cropSize) / 2;
+                    int offsetY = (img.height - cropSize) / 2;
+
+                    Rectangle src = {
+                        offsetX,
+                        offsetY,
+                        (float)cropSize,
+                        (float)cropSize
+                    };
+
+                    Rectangle dst = {
+                        activeTracks[i]->size.x,
+                        activeTracks[i]->position.y,
+                        activeTracks[i]->size.y,
+                        activeTracks[i]->size.y  // destination is square
+                    };
+
+                    DrawTexturePro(
+                        img,
+                        src,         // cropped source region
+                        dst,         // draw region (resized)
+                        (Vector2){0, 0},
+                        0.0f,
+                        WHITE
+                    );
+
+                    // Text annotations
+                    float annotationXOffset = activeTracks[i]->size.y * 1.105f;
+                    DrawTextEx(normalFont, 
+                        activeTracks[i]->name, 
+                        (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f }, 
+                        normalFontSize, 1, BLACK);
+                    DrawTextEx(normalFont, 
+                        activeTracks[i]->artist, 
+                        (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize }, 
+                        normalFontSize, 1, DARKGRAY);
+
+                    // if (MONEY_MODE) {
+                    //     // add $ in front of playcountText
+                    //     char moneyPlaycountText[64];
+                    //     snprintf(moneyPlaycountText, sizeof(moneyPlaycountText), "$%s", playcountText);
+                    //     DrawTextEx(normalFont, 
+                    //         moneyPlaycountText, 
+                    //         (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
+                    //         normalFontSize, 1, BLUE);
+                    // } else {
+                    DrawTextEx(normalFont, 
+                        playcountText, 
+                        (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
+                        normalFontSize, 1, BLUE);
+                    // }
+                    
                 }
-
-                if (activeTracks[i]->playcountDiffDaily >= songsThresholdDaily) {
-                    Vector3 baseHSV = ColorToHSV(activeTracks[i]->baseColor);
-                    float pulse = 0.9f + 0.1f * sinf(currentAnimationTime * 10.0f);
-                    float vPulsed = baseHSV.z * pulse;
-                    activeTracks[i]->barColor = ColorFromHSV(baseHSV.x, baseHSV.y, vPulsed);
-
-                    formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
-                    strcat(playcountText, "↑↑");
-                }
-                else if (abs(activeTracks[i]->barColor.r - activeTracks[i]->baseColor.r) > 10 ||
-                        abs(activeTracks[i]->barColor.g - activeTracks[i]->baseColor.g) > 10 ||
-                        abs(activeTracks[i]->barColor.b - activeTracks[i]->baseColor.b) > 10) {
-
-                    Vector3 baseHSV = ColorToHSV(activeTracks[i]->baseColor);
-                    float pulse = 0.9f + 0.1f * sinf(currentAnimationTime * 10.0f);
-                    float vPulsed = baseHSV.z * pulse;
-                    activeTracks[i]->barColor = ColorFromHSV(baseHSV.x, baseHSV.y, vPulsed);
-
-                    formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
-                    strcat(playcountText, "↑");
-                } else {
-                    activeTracks[i]->barColor = activeTracks[i]->baseColor;
-                }
-                if (playcountText[0] == '\0') formatNumber(activeTracks[i]->playcount, playcountText, sizeof(playcountText));
-
-                Color finalColor = Fade(activeTracks[i]->barColor, activeTracks[i]->currentAlpha);
-                Rectangle barRect = { activeTracks[i]->position.x, activeTracks[i]->position.y, activeTracks[i]->size.x, activeTracks[i]->size.y };
-                DrawRectangleRec(barRect, finalColor);
-
-                Texture2D img = activeTracks[i]->image;
-                int cropSize = (img.width < img.height) ? img.width : img.height;
-                int offsetX = (img.width  - cropSize) / 2;
-                int offsetY = (img.height - cropSize) / 2;
-
-                Rectangle src = {
-                    offsetX,
-                    offsetY,
-                    (float)cropSize,
-                    (float)cropSize
-                };
-
-                Rectangle dst = {
-                    activeTracks[i]->size.x,
-                    activeTracks[i]->position.y,
-                    activeTracks[i]->size.y,
-                    activeTracks[i]->size.y  // destination is square
-                };
-
-                DrawTexturePro(
-                    img,
-                    src,         // cropped source region
-                    dst,         // draw region (resized)
-                    (Vector2){0, 0},
-                    0.0f,
-                    WHITE
-                );
-
-                // Text annotations
-                float annotationXOffset = activeTracks[i]->size.y * 1.105f;
-                DrawTextEx(normalFont, 
-                    activeTracks[i]->name, 
-                    (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f }, 
-                    normalFontSize, 1, BLACK);
-                DrawTextEx(normalFont, 
-                    activeTracks[i]->artist, 
-                    (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize }, 
-                    normalFontSize, 1, DARKGRAY);
-
-                // if (MONEY_MODE) {
-                //     // add $ in front of playcountText
-                //     char moneyPlaycountText[64];
-                //     snprintf(moneyPlaycountText, sizeof(moneyPlaycountText), "$%s", playcountText);
-                //     DrawTextEx(normalFont, 
-                //         moneyPlaycountText, 
-                //         (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
-                //         normalFontSize, 1, BLUE);
-                // } else {
-                DrawTextEx(normalFont, 
-                    playcountText, 
-                    (Vector2){ activeTracks[i]->size.x + annotationXOffset, activeTracks[i]->position.y + activeTracks[i]->size.y/12.0f + normalFontSize*2 }, 
-                    normalFontSize, 1, BLUE);
-                // }
-                
             }
+
+            if (state == STATE_AWARDS) {
+                // draw awards screen
+                if (currentAwardIndex < MAX_AWARDS) {
+                    Award* award = &awards[currentAwardIndex];
+
+                    // draw background
+                    DrawRectangle(0, 0, WIDTH, HEIGHT, award->bgColor);
+
+                    // draw award image in center
+                    float imgWidth = award->image.width;
+                    float imgHeight = award->image.height;
+                    float scaleFactor = 600.0f / imgHeight;
+                    float drawWidth = imgWidth * scaleFactor;
+                    float drawHeight = imgHeight * scaleFactor;
+
+                    // fade image in
+                    float fadeDuration = 1.0f; // seconds
+                    float timeSinceAwardStart = (frames - frames_by_csv) / (float)FPS;
+                    float alpha = (timeSinceAwardStart < fadeDuration) 
+                        ? (timeSinceAwardStart / fadeDuration) 
+                        : 1.0f;
+                    DrawTexturePro(
+                        award->image,
+                        (Rectangle){0, 0, imgWidth, imgHeight},
+                        (Rectangle){(WIDTH - drawWidth) / 2.0f, (HEIGHT - drawHeight) / 2.0f - 50.0f, drawWidth, drawHeight},
+                        (Vector2){0, 0},
+                        0.0f,
+                        Fade(WHITE, alpha)
+                    );
+
+                    // draw text
+                    Vector2 textSize = MeasureTextEx(normalFont, award->text, 24, 1);
+                    float x = (WIDTH - textSize.x) / 2.0f;
+                    DrawTextEx(normalFont, 
+                        award->text, 
+                        (Vector2){ x, HEIGHT - 275.0f }, 
+                        24, 1, BLACK
+                    );
+
+                    Vector2 statSize = MeasureTextEx(normalFont, award->stat, 24, 1);
+                    float statX = (WIDTH - statSize.x) / 2.0f;
+                    DrawTextEx(normalFont,
+                        award->stat, 
+                        (Vector2){ statX, HEIGHT - 250.0f }, 
+                        24, 1, BLACK
+                    );
+
+                    // draw the category title above the image
+                    Vector2 categorySize = MeasureTextEx(bigFont, award->category, 48, 1);
+                    float categoryX = (WIDTH - categorySize.x) / 2.0f;
+                    DrawTextEx(bigFont, 
+                        award->category, 
+                        (Vector2){ categoryX, 125.0f }, 
+                        48, 1, BLACK
+                    );
+
+                    // persist the images for a few seconds
+                    if (frames - frames_by_csv > FPS * 9) {
+                        currentAwardIndex++;
+                        frames_by_csv = frames;
+                    }
+                } else {
+                    // end the animation after all awards shown
+                    state = STATE_EXIT;
+                }
+
+                // if (frames - frames_by_csv > FPS * 10) {
+                //     state = STATE_EXIT;
+                // }
+            }
+
             EndScissorMode();
             
             
